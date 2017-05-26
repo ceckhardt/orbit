@@ -659,7 +659,13 @@ public class Stage implements Startable, ActorRuntime
 
         localObjectsCleaner.setActorDeactivationExtensions(getAllExtensions(ActorDeactivationExtension.class));
 
-        final ResponseCachingExtension cacheManager = getAllExtensions(ResponseCachingExtension.class)
+        final List<ResponseCachingExtension> cacheExtensions = getAllExtensions(ResponseCachingExtension.class);
+
+        if(cacheExtensions.size() > 1) {
+            throw new IllegalArgumentException("Only one cache extension may be configured");
+        }
+
+        final ResponseCachingExtension cacheManager = cacheExtensions
                 .stream()
                 .findFirst()
                 .orElseGet(() ->
