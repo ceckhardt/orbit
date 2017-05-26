@@ -51,6 +51,7 @@ import cloud.orbit.actors.extensions.LoggerExtension;
 import cloud.orbit.actors.extensions.MessageSerializer;
 import cloud.orbit.actors.extensions.NodeSelectorExtension;
 import cloud.orbit.actors.extensions.PipelineExtension;
+import cloud.orbit.actors.extensions.ResponseCachingExtension;
 import cloud.orbit.actors.extensions.StreamProvider;
 import cloud.orbit.actors.net.DefaultPipeline;
 import cloud.orbit.actors.net.Pipeline;
@@ -658,17 +659,23 @@ public class Stage implements Startable, ActorRuntime
 
         localObjectsCleaner.setActorDeactivationExtensions(getAllExtensions(ActorDeactivationExtension.class));
 
-        final ResponseCaching cacheManager = new ResponseCaching();
+        final ResponseCachingExtension cacheManager = getAllExtensions(ResponseCachingExtension.class)
+                .stream()
+                .findFirst()
+                .orElseGet(() ->
+                {
+                    final ResponseCaching responseCaching = new ResponseCaching();
+                    responseCaching.setObjectCloner(objectCloner);
+                    responseCaching.setRuntime(this);
+                    responseCaching.setMessageSerializer(messageSerializer);
+                    return responseCaching;
+                });
 
         hosting.setNodeType(mode == StageMode.HOST ? NodeCapabilities.NodeTypeEnum.SERVER : NodeCapabilities.NodeTypeEnum.CLIENT);
         execution.setRuntime(this);
         execution.setObjects(objects);
         execution.setExecutionSerializer(executionSerializer);
         execution.setInvocationHandler(invocationHandler);
-
-        cacheManager.setObjectCloner(objectCloner);
-        cacheManager.setRuntime(this);
-        cacheManager.setMessageSerializer(messageSerializer);
 
         messaging.setRuntime(this);
 
