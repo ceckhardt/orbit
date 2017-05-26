@@ -28,7 +28,6 @@
 
 package cloud.orbit.actors.extensions;
 
-import cloud.orbit.actors.Actor;
 import cloud.orbit.actors.Addressable;
 import cloud.orbit.actors.cache.ExecutionCacheFlushObserver;
 import cloud.orbit.actors.net.Handler;
@@ -43,9 +42,5 @@ public interface ResponseCachingExtension extends ActorExtension, ExecutionCache
     Task<?> get(Method method, Pair<Addressable, String> key);
 
     void put(Method method, Pair<Addressable, String> key, Task<?> value);
-
-    Task<Void> flush(Actor actor);
-
-    Task<Void> flushWithoutWaiting(Actor actor);
 
 }
