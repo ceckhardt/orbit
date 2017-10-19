@@ -37,7 +37,6 @@ import cloud.orbit.actors.annotation.StatelessWorker;
 import cloud.orbit.actors.annotation.StorageExtension;
 import cloud.orbit.actors.cloner.ExecutionObjectCloner;
 import cloud.orbit.actors.cluster.ClusterPeer;
-import cloud.orbit.actors.cluster.JGroupsClusterPeer;
 import cloud.orbit.actors.cluster.NodeAddress;
 import cloud.orbit.actors.concurrent.MultiExecutionSerializer;
 import cloud.orbit.actors.concurrent.WaitFreeMultiExecutionSerializer;
@@ -138,7 +137,7 @@ public class Stage implements Startable, ActorRuntime
 {
     private Logger logger = LoggerFactory.getLogger(Stage.class);
 
-    private static final int DEFAULT_EXECUTION_POOL_SIZE = 128;
+    private static final int DEFAULT_EXECUTION_POOL_SIZE = 32;
     private static final int DEFAULT_LOCAL_ADDRESS_CACHE_MAXIMUM_SIZE = 10_000;
 
     private final String runtimeIdentity = "Orbit[" + IdUtils.urlSafeString(128) + "]";
@@ -202,6 +201,9 @@ public class Stage implements Startable, ActorRuntime
 
     @Config("orbit.actors.numReminderControllers")
     private int numReminderControllers = 1;
+
+    @Config("orbit.actors.broadcastActorDeactivations")
+    private boolean broadcastActorDeactivations = true;
 
     private volatile NodeCapabilities.NodeState state;
 
@@ -268,6 +270,7 @@ public class Stage implements Startable, ActorRuntime
         private Long actorTTLMillis = null;
         private Long localAddressCacheTTLMillis = null;
         private Integer numReminderControllers = null;
+        private Boolean broadcastActorDeactivations = null;
         private Long deactivationTimeoutMillis;
         private Integer concurrentDeactivations;
 
@@ -437,6 +440,12 @@ public class Stage implements Startable, ActorRuntime
             return this;
         }
 
+        public Builder broadcastActorDeactivations(final boolean broadcastActorDeactivations)
+        {
+            this.broadcastActorDeactivations = broadcastActorDeactivations;
+            return this;
+        }
+
         public Stage build()
         {
             final Stage stage = new Stage();
@@ -466,6 +475,7 @@ public class Stage implements Startable, ActorRuntime
             if(numReminderControllers != null) stage.setNumReminderControllers(numReminderControllers);
             if(deactivationTimeoutMillis != null) stage.setDeactivationTimeout(deactivationTimeoutMillis);
             if(concurrentDeactivations != null) stage.setConcurrentDeactivations(concurrentDeactivations);
+            if(broadcastActorDeactivations != null) stage.setBroadcastActorDeactivations(broadcastActorDeactivations);
             return stage;
         }
 
@@ -642,6 +652,16 @@ public class Stage implements Startable, ActorRuntime
         this.deactivationTimeoutMillis = deactivationTimeoutMs;
     }
 
+    public boolean getBroadcastActorDeactivations()
+    {
+        return broadcastActorDeactivations;
+    }
+
+    public void setBroadcastActorDeactivations(boolean broadcastActorDeactivation)
+    {
+        this.broadcastActorDeactivations = broadcastActorDeactivation;
+    }
+
     @Override
     public Task<?> start()
     {
@@ -707,11 +727,11 @@ public class Stage implements Startable, ActorRuntime
         }
         if (messageSerializer == null)
         {
-            messageSerializer = new JavaMessageSerializer();
+            messageSerializer = new KryoSerializer();
         }
         if (clusterPeer == null)
         {
-            clusterPeer = new JGroupsClusterPeer();
+            clusterPeer = constructDefaultClusterPeer();
         }
         if (clock == null)
         {
@@ -832,16 +852,15 @@ public class Stage implements Startable, ActorRuntime
             extensions.add(defaultStreamProvider);
         }
 
-        if(extensions.stream().noneMatch(p -> p instanceof LifetimeExtension))
+        if (extensions.stream().noneMatch(p -> p instanceof LifetimeExtension))
         {
             extensions.add(new DefaultLifetimeExtension());
         }
 
-        if(extensions.stream().noneMatch(p -> p instanceof ActorConstructionExtension))
+        if (extensions.stream().noneMatch(p -> p instanceof ActorConstructionExtension))
         {
             extensions.add(new DefaultActorConstructionExtension());
         }
-
 
         logger.debug("Starting messaging...");
         messaging.start();
@@ -854,28 +873,28 @@ public class Stage implements Startable, ActorRuntime
         await(Task.allOf(extensions.stream().map(Startable::start)));
 
         Task<Void> future = pipeline.connect(null);
-        if (mode == StageMode.HOST)
-        {
-            future = future.thenRun(() -> {
-                this.bind();
-                startReminderController();
-            });
-        }
 
-        future = future.thenRun(() -> bind());
+        future = future.thenRun(() -> {
+            bind();
 
-        // schedules the pulse
-        timer.schedule(new TimerTask()
-        {
-            @Override
-            public void run()
+            // schedules the pulse
+            timer.schedule(new TimerTask()
             {
-                if (state == NodeCapabilities.NodeState.RUNNING)
+                @Override
+                public void run()
                 {
-                    ForkJoinTask.adapt(() -> pulse().join()).fork();
+                    if (state == NodeCapabilities.NodeState.RUNNING)
+                    {
+                        ForkJoinTask.adapt(() -> pulse().join()).fork();
+                    }
                 }
+            }, pulseIntervalMillis, pulseIntervalMillis);
+
+            if (mode == StageMode.HOST)
+            {
+                startReminderController();
             }
-        }, pulseIntervalMillis, pulseIntervalMillis);
+        });
 
         future.whenComplete((r, e) -> {
             if (e != null)
@@ -990,8 +1009,7 @@ public class Stage implements Startable, ActorRuntime
 
     private Task<Void> stopActors()
     {
-        await(localObjectsCleaner.shutdown());
-        return Task.done();
+        return localObjectsCleaner.shutdown();
     }
 
     private Task<Void> stopTimers()
@@ -1030,7 +1048,8 @@ public class Stage implements Startable, ActorRuntime
 
     public ClusterPeer getClusterPeer()
     {
-        return clusterPeer != null ? clusterPeer : (clusterPeer = new JGroupsClusterPeer());
+
+        return clusterPeer != null ? clusterPeer : (clusterPeer = constructDefaultClusterPeer());
     }
 
     public Task pulse()
@@ -1072,6 +1091,19 @@ public class Stage implements Startable, ActorRuntime
     public void bind()
     {
         ActorRuntime.setRuntime(this.cachedRef);
+    }
+
+    private ClusterPeer constructDefaultClusterPeer()
+    {
+        try
+        {
+            final Class jGroupsClusterPeer = Class.forName("cloud.orbit.actors.cluster.JGroupsClusterPeer");
+            return (ClusterPeer) jGroupsClusterPeer.getConstructors()[0].newInstance();
+        }
+        catch(Exception e)
+        {
+            throw new UncheckedException(e);
+        }
     }
 
     @Override
@@ -1125,7 +1157,7 @@ public class Stage implements Startable, ActorRuntime
         final ActorTaskContext context = ActorTaskContext.current();
         if (context != null)
         {
-            Map<Object, Object> headers = null;
+            Map<String, Object> headers = null;
             for (final String key : stickyHeaders)
             {
                 final Object value = context.getProperty(key);
@@ -1183,7 +1215,7 @@ public class Stage implements Startable, ActorRuntime
             @Override
             public void run()
             {
-                if (localActor.isDeactivated())
+                if (localActor.isDeactivated() || state == NodeCapabilities.NodeState.STOPPED)
                 {
                     cancel();
                     return;
@@ -1191,7 +1223,7 @@ public class Stage implements Startable, ActorRuntime
 
                 executionSerializer.offerJob(key,
                         () -> {
-                            if (localActor.isDeactivated())
+                            if (localActor.isDeactivated() || state == NodeCapabilities.NodeState.STOPPED)
                             {
                                 cancel();
                             }

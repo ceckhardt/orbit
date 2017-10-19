@@ -52,6 +52,7 @@ import cloud.orbit.actors.runtime.AbstractExecution;
 import cloud.orbit.actors.runtime.ActorFactoryGenerator;
 import cloud.orbit.actors.runtime.ActorTaskContext;
 import cloud.orbit.actors.runtime.Execution;
+import cloud.orbit.actors.runtime.JavaMessageSerializer;
 import cloud.orbit.actors.runtime.KryoSerializer;
 import cloud.orbit.actors.runtime.NodeCapabilities;
 import cloud.orbit.actors.server.ServerPeer;
@@ -282,7 +283,10 @@ public class ActorBaseTest
                 .clusterName(clusterName)
                 .clusterPeer(new FakeClusterPeer())
                 .extensions(lifetimeExtension)
+                .messageSerializer(new JavaMessageSerializer())
                 .build();
+
+        stages.add(client);
 
         installExtensions(client);
 
@@ -317,7 +321,8 @@ public class ActorBaseTest
                 .objectCloner(getExecutionObjectCloner())
                 .clock(clock)
                 .clusterName(clusterName)
-                .clusterPeer(new FakeClusterPeer());
+                .clusterPeer(new FakeClusterPeer())
+                .messageSerializer(new JavaMessageSerializer());
 
         customizer.accept(builder);
 
@@ -497,17 +502,21 @@ public class ActorBaseTest
     @After
     public void tearDown()
     {
-        Task.runAsync(() -> stages.stream()
-                .filter(s -> s.getState() == NodeCapabilities.NodeState.RUNNING)
-                .forEach(s -> {
-                    try
-                    {
-                        s.stop();
-                    }
-                    catch (Throwable t)
-                    {
-                        // ignore
-                    }
-                }));
+        List<Task<?>> tasks = new ArrayList<>();
+        for (Stage stage : stages)
+        {
+            if (stage.getState() == NodeCapabilities.NodeState.RUNNING)
+            {
+                tasks.add(stage.stop());
+            }
+        }
+        try
+        {
+            Task.allOf(tasks).join();
+        }
+        catch (Throwable t)
+        {
+            // ignore
+        }
     }
 }
