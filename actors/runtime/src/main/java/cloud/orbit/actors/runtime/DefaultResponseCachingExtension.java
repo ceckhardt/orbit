@@ -55,8 +55,10 @@ import java.math.BigInteger;
 import java.security.DigestOutputStream;
 import java.security.MessageDigest;
 import java.time.Clock;
+import java.util.Map;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 public class DefaultResponseCachingExtension
         extends HandlerAdapter
@@ -66,7 +68,9 @@ public class DefaultResponseCachingExtension
     private static Executor cacheExecutor = null;
     private MessageSerializer messageSerializer;
     private BasicRuntime runtime;
+
     private final AnnotationCache<CacheResponse> cacheResponseCache = new AnnotationCache<>(CacheResponse.class);
+
     private final MessageDigestFactory messageDigest = new MessageDigestFactory("SHA-256");
 
     private static class NullOutputStream extends OutputStream
@@ -97,6 +101,18 @@ public class DefaultResponseCachingExtension
     public static void setClock(final Clock clock)
     {
         DefaultResponseCachingExtension.clock = clock;
+    }
+
+    public Map<Method, Long> getCacheSizes() {
+
+        return masterCache.asMap().entrySet().stream()
+                .map(this::getCacheSize)
+                .collect(Collectors.toMap(Pair::getLeft, Pair::getRight));
+    }
+
+    private Pair<Method, Long> getCacheSize(final Map.Entry<Method, Cache<Pair<Addressable, String>, Task>> methodCacheEntry)
+    {
+        return Pair.of(methodCacheEntry.getKey(), methodCacheEntry.getValue().estimatedSize());
     }
 
     /**
