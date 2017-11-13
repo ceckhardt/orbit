@@ -931,9 +931,12 @@ public class Stage implements Startable, ActorRuntime
         return numReminderControllers > 1;
     }
 
-    public String getReminderControllerIdentity(final String reminderName)
+    public String getReminderControllerIdentity(final Remindable actor, final String reminderName)
     {
-        return Integer.toString((Math.abs(reminderName.hashCode())) % numReminderControllers);
+        final Object id = RemoteReference.getId(RemoteReference.from(actor));
+        final String key = id == null ? reminderName : reminderName + ":" + id.toString();
+
+        return Integer.toString((Math.abs(key.hashCode())) % numReminderControllers);
     }
 
     public void setClusterPeer(final ClusterPeer clusterPeer)
@@ -1287,7 +1290,7 @@ public class Stage implements Startable, ActorRuntime
 
         if(useReminderShards())
         {
-            final String id = getReminderControllerIdentity(reminderName);
+            final String id = getReminderControllerIdentity(actor, reminderName);
             return Actor.getReference(ShardedReminderController.class, id).registerOrUpdateReminder(actor, reminderName, date, period, timeUnit);
         }
 
@@ -1299,7 +1302,7 @@ public class Stage implements Startable, ActorRuntime
     {
         if(useReminderShards())
         {
-            final String id = getReminderControllerIdentity(reminderName);
+            final String id = getReminderControllerIdentity(actor, reminderName);
             return Actor.getReference(ShardedReminderController.class, id).unregisterReminder(actor, reminderName);
         }
 

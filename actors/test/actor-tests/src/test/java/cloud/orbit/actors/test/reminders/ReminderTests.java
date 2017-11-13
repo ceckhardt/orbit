@@ -132,13 +132,14 @@ public class ReminderTests extends ActorBaseTest
         final Stage stage = createStage(builder -> builder.numReminderControllers(2));
         final String reminderName = UUID.randomUUID().toString();
 
-        final String reminderControllerIdentity = stage.getReminderControllerIdentity(reminderName);
+        final ReminderTest testActor = Actor.getReference(ReminderTest.class, reminderName);
+
+        final String reminderControllerIdentity = stage.getReminderControllerIdentity(testActor, reminderName);
         final ShardedReminderController reminderController = Actor.getReference(ShardedReminderController.class, reminderControllerIdentity);
 
         final List<String> remindersBeforeAdd = reminderController.getReminders().join();
         assertEquals(0, remindersBeforeAdd.size());
 
-        final ReminderTest testActor = Actor.getReference(ReminderTest.class, reminderName);
         testActor.addReminder(reminderName, 1L, 1L, TimeUnit.DAYS).join();
 
         final List<String> remindersAfterAdd = reminderController.getReminders().join();
