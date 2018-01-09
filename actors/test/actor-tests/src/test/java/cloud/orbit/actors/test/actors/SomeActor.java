@@ -30,9 +30,11 @@ package cloud.orbit.actors.test.actors;
 
 import cloud.orbit.actors.Actor;
 import cloud.orbit.actors.annotation.OnlyIfActivated;
+import cloud.orbit.actors.annotation.Timeout;
 import cloud.orbit.concurrent.Task;
 
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 public interface SomeActor extends Actor
 {
@@ -44,6 +46,9 @@ public interface SomeActor extends Actor
     Task<UUID> getUniqueActivationId();
 
     Task<UUID> getUniqueActivationId(long sleepNanos);
+
+    @Timeout(value = 100, timeUnit = TimeUnit.MILLISECONDS)
+    Task<UUID> getUniqueActivationIdWithTimeoutAnnotation(long sleepNanos);
 
     Task<Boolean> getActivationWasCalled();
 

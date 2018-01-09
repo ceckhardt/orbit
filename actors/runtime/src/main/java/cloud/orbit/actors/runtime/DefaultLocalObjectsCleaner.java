@@ -31,7 +31,9 @@ package cloud.orbit.actors.runtime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import cloud.orbit.actors.Actor;
 import cloud.orbit.actors.annotation.NeverDeactivate;
+import cloud.orbit.actors.annotation.TimeToLive;
 import cloud.orbit.actors.concurrent.ConcurrentExecutionQueue;
 import cloud.orbit.actors.extensions.ActorDeactivationExtension;
 import cloud.orbit.concurrent.Task;
@@ -77,9 +79,18 @@ public class DefaultLocalObjectsCleaner implements LocalObjectsCleaner
         this.concurrentExecutionQueue = new ConcurrentExecutionQueue(executor, concurrentDeactivations, 0);
     }
 
+    @Override
+    public Task deactivateActor(final Actor actor) {
+        final LocalObjects.LocalObjectEntry<?> actorRef = localObjects.findLocalActor(actor);
+        if(actorRef != null) {
+            return deactivateEntry((ActorBaseEntry<?>)actorRef);
+        }
+        return Task.done();
+    }
+
     @SuppressWarnings("unchecked")
     @Override
-    public Task<Void> cleanup()
+    public Task cleanup()
     {
         await(cleanupObservers());
         await(cleanupActors(false));
@@ -88,7 +99,7 @@ public class DefaultLocalObjectsCleaner implements LocalObjectsCleaner
 
     @SuppressWarnings("unchecked")
     @Override
-    public Task<Void> shutdown()
+    public Task shutdown()
     {
         return cleanupActors(true);
     }
@@ -125,38 +136,7 @@ public class DefaultLocalObjectsCleaner implements LocalObjectsCleaner
             {
                 if (pendingDeactivations.add(actorEntry))
                 {
-                    pendingThisCycle.add(concurrentExecutionQueue.execute(() ->
-                            actorEntry.deactivate().failAfter(deactivationTimeoutMillis, TimeUnit.MILLISECONDS)
-                                    .whenComplete((r, e) ->
-                                    {
-                                        // ensures removal
-                                        if (e != null)
-                                        {
-                                            // error occurred
-                                            if (logger.isErrorEnabled())
-                                            {
-                                                logger.error("Error during the deactivation of " + actorEntry.getRemoteReference(), e);
-                                            }
-                                            // forcefully setting the entry to deactivated
-                                            actorEntry.setDeactivated(true);
-                                        }
-
-                                        try
-                                        {
-                                            localObjects.remove(entryEntry.getKey(), entryEntry.getValue());
-                                            if (entryEntry.getKey() == actorEntry.getRemoteReference())
-                                            {
-                                                // removing non stateless actor from the distributed directory
-                                                hosting.actorDeactivated(actorEntry.getRemoteReference());
-                                            }
-                                        }
-                                        finally
-                                        {
-                                            pendingDeactivations.remove(actorEntry);
-                                        }
-                                    })
-                            )
-                    );
+                    pendingThisCycle.add(deactivateEntry(actorEntry));
                 }
             }
         }
@@ -164,18 +144,75 @@ public class DefaultLocalObjectsCleaner implements LocalObjectsCleaner
         return Task.allOf(pendingThisCycle);
     }
 
+    private Task deactivateEntry(final ActorBaseEntry<?> actorEntry) {
+        return concurrentExecutionQueue.execute(() ->
+                actorEntry.deactivate().failAfter(deactivationTimeoutMillis, TimeUnit.MILLISECONDS)
+                        .whenComplete((r, e) ->
+                        {
+                            // ensures removal
+                            if (e != null)
+                            {
+                                // error occurred
+                                if (logger.isErrorEnabled())
+                                {
+                                    logger.error("Error during the deactivation of " + actorEntry.getRemoteReference(), e);
+                                }
+                                // forcefully setting the entry to deactivated
+                                actorEntry.setDeactivated(true);
+                            }
+
+                            try
+                            {
+                                localObjects.remove(actorEntry.reference, actorEntry);
+                                if (actorEntry.reference == actorEntry.getRemoteReference())
+                                {
+                                    // removing non stateless actor from the distributed directory
+                                    hosting.actorDeactivated(actorEntry.getRemoteReference());
+                                }
+                            }
+                            finally
+                            {
+                                pendingDeactivations.remove(actorEntry);
+                            }
+                        })
+        );
+    }
+
     private boolean shouldRemove(final ActorBaseEntry<?> actorEntry, final Set<ActorBaseEntry<?>> toRemove)
     {
+        final Class<?> interfaceClass = RemoteReference.getInterfaceClass(actorEntry.getRemoteReference());
         // Make sure it isn't tagged NeverDeactivate
-        if (RemoteReference.getInterfaceClass(actorEntry.getRemoteReference()).isAnnotationPresent(NeverDeactivate.class))
+        if (interfaceClass.isAnnotationPresent(NeverDeactivate.class))
         {
             return false;
         }
-        // Check for timeout
-        boolean shouldRemove = clock.millis() - actorEntry.getLastAccess() > defaultActorTTL;
+
+        // Check for ttl override
+        if(interfaceClass.isAnnotationPresent(TimeToLive.class))
+        {
+            final TimeToLive customTtl = interfaceClass.getAnnotation(TimeToLive.class);
+            final long customTtlMilliseconds = customTtl.timeUnit().toMillis(customTtl.value());
+            if(clock.millis() - actorEntry.getLastAccess() > customTtlMilliseconds)
+            {
+                return true;
+            }
+        }
+        else
+            {
+            // Check against default
+            if(clock.millis() - actorEntry.getLastAccess() > defaultActorTTL)
+            {
+                return true;
+            }
+        }
+
+
         // Check if extension wanted to remove it
-        shouldRemove = shouldRemove || toRemove.contains(actorEntry);
-        return shouldRemove;
+        if(toRemove.contains(actorEntry)) {
+            return true;
+        }
+
+        return false;
     }
 
     private Task cleanupObservers()
