@@ -1,5 +1,5 @@
 /*
- Copyright (C) 2016 Electronic Arts Inc.  All rights reserved.
+ Copyright (C) 2017 Electronic Arts Inc.  All rights reserved.
 
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the following conditions
@@ -26,31 +26,14 @@
  THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package cloud.orbit.actors.test.actors;
+package cloud.orbit.actors.runtime;
 
-
-import cloud.orbit.actors.annotation.SkipUpdateLastAccess;
-import cloud.orbit.actors.runtime.AbstractActor;
+import cloud.orbit.actors.Actor;
+import cloud.orbit.actors.ActorObserver;
 import cloud.orbit.concurrent.Task;
 
-@SuppressWarnings("rawtypes")
-public class OnlyIfActivatedActor extends AbstractActor implements OnlyIfActivated
+public interface RuntimeActions extends ActorObserver
 {
-    public static int accessCount = 0;
-
-    @Override
-    @SkipUpdateLastAccess
-    public Task<Void> doSomethingSpecial(final String greeting)
-    {
-        accessCount++;
-        return Task.done();
-    }
-
-    @Override
-    public Task<Void> makeActiveNow()
-    {
-        //does really nothing, but allows the actor to be activated
-        return Task.done();
-    }
+    Task deactivateActor(Actor actor);
+    Task<Long> getActorCount();
 }
-

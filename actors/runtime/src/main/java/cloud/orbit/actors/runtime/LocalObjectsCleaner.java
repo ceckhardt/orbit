@@ -28,6 +28,7 @@
 
 package cloud.orbit.actors.runtime;
 
+import cloud.orbit.actors.Actor;
 import cloud.orbit.actors.extensions.ActorDeactivationExtension;
 import cloud.orbit.concurrent.Task;
 
@@ -38,7 +39,8 @@ import java.util.List;
  */
 public interface LocalObjectsCleaner
 {
-    Task<Void> cleanup();
-    Task<Void> shutdown();
+    Task cleanup();
+    Task shutdown();
+    Task deactivateActor(Actor actor);
     void setActorDeactivationExtensions(final List<ActorDeactivationExtension> extensionList);
 }
