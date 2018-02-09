@@ -108,7 +108,9 @@ public class SimpleInvocationHandler implements InvocationHandler
         // If reentrant we say we are done
         if (reentrant)
         {
-            return Task.fromValue(null);
+            Task<Object> task = Task.fromValue(null);
+            task.putMetadata("methodName", method.getName());
+            return task;
         }
 
         return invokeResult;
