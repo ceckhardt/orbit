@@ -301,7 +301,7 @@ public class WaitFreeExecutionSerializer implements ExecutionSerializer, Executo
     private <T> BiConsumer<T, Throwable> createOnInvocationCompleteHandler(Task<?> task) {
         return (result, error) -> {
             onExecutionComplete(task);
-            task.whenCompleteAsync(this::whenCompleteAsync);
+            this.whenCompleteAsync(result, error);
         };
     }
 
