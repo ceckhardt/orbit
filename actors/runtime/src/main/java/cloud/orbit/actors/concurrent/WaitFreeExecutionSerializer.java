@@ -181,7 +181,7 @@ public class WaitFreeExecutionSerializer implements ExecutionSerializer, Executo
                         else
                         {
                             // this will run whenComplete in another thread
-                            taskFuture.whenCompleteAsync(createOnInvocationCompleteHandler(taskFuture));
+                            taskFuture.whenCompleteAsync(createOnInvocationCompleteHandler(taskFuture), executorService);
                             // returning without unlocking, onComplete will do it;
                             return;
                         }
