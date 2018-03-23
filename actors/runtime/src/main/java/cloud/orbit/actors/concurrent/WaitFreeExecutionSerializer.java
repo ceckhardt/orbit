@@ -28,11 +28,10 @@
 
 package cloud.orbit.actors.concurrent;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import cloud.orbit.actors.runtime.InternalUtils;
 import cloud.orbit.concurrent.Task;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executor;
@@ -86,7 +85,7 @@ public class WaitFreeExecutionSerializer implements ExecutionSerializer, Executo
         }
 
         final long timeAddedToQueue = System.currentTimeMillis();
-        if (queueSize >= maxQueueSize || !queue.add(getTaskSupplier(taskSupplier, completion, timeAddedToQueue)))
+        if (queueSize >= maxQueueSize || !queue.add(getTaskSupplier(taskSupplier, completion, timeAddedToQueue, queueSize)))
         {
             throw new IllegalStateException(String.format("Queue full for %s (%d > %d)", key, queue.size(), maxQueueSize));
         }
@@ -99,8 +98,12 @@ public class WaitFreeExecutionSerializer implements ExecutionSerializer, Executo
         return completion;
     }
 
-    private <R> Supplier<Task<?>> getTaskSupplier(final Supplier<Task<R>> taskSupplier, final Task<R> completion, final long timeAddedToQueue)
-    {
+    private <R> Supplier<Task<?>> getTaskSupplier(
+            final Supplier<Task<R>> taskSupplier,
+            final Task<R> completion,
+            final long timeAddedToQueue,
+            final int queueSize
+    ) {
         return () ->
         {
             long timePoppedFromQueue = System.currentTimeMillis();
@@ -108,7 +111,7 @@ public class WaitFreeExecutionSerializer implements ExecutionSerializer, Executo
             long timeSelfExecutionComplete = System.currentTimeMillis();
 
             addedToQueue(timeAddedToQueue, source);
-            onExecutionStarted(source, timeAddedToQueue, timePoppedFromQueue, timeSelfExecutionComplete);
+            onExecutionStarted(source, timeAddedToQueue, timePoppedFromQueue, timeSelfExecutionComplete, queueSize);
 
             InternalUtils.linkFutures(source, completion);
             return source;
@@ -181,7 +184,7 @@ public class WaitFreeExecutionSerializer implements ExecutionSerializer, Executo
                         else
                         {
                             // this will run whenComplete in another thread
-                            taskFuture.whenCompleteAsync(createOnInvocationCompleteHandler(taskFuture));
+                            taskFuture.whenCompleteAsync(createOnInvocationCompleteHandler(taskFuture), executorService);
                             // returning without unlocking, onComplete will do it;
                             return;
                         }
@@ -231,12 +234,14 @@ public class WaitFreeExecutionSerializer implements ExecutionSerializer, Executo
      * @param timePoppedFromQueue A timestamp taken when the invocation was pulled out of the queue to be executed.
      * @param timeSelfExecutionComplete A timestamp taken when the invocation had finished returning a Task that
      *                                  represents any asynchronous computation.
+     * @param queueSize The number of elements _ahead of_ this invocation in the Actor's queue when it was enqueued.
      */
     protected void onExecutionStarted(
             final Task<?> task,
             final long timeAddedToQueue,
             final long timePoppedFromQueue,
-            final long timeSelfExecutionComplete
+            final long timeSelfExecutionComplete,
+            final int queueSize
     ) {
         // do-nothing: this is an extension point
     }
@@ -301,7 +306,7 @@ public class WaitFreeExecutionSerializer implements ExecutionSerializer, Executo
     private <T> BiConsumer<T, Throwable> createOnInvocationCompleteHandler(Task<?> task) {
         return (result, error) -> {
             onExecutionComplete(task);
-            task.whenCompleteAsync(this::whenCompleteAsync);
+            this.whenCompleteAsync(result, error);
         };
     }
 

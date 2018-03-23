@@ -31,6 +31,7 @@ package cloud.orbit.actors.runtime;
 import cloud.orbit.actors.Actor;
 import cloud.orbit.actors.Stage;
 import cloud.orbit.actors.exceptions.ObserverNotFound;
+import cloud.orbit.actors.extensions.ActivationReasonExtension;
 import cloud.orbit.actors.net.HandlerContext;
 import cloud.orbit.concurrent.Task;
 import cloud.orbit.lifecycle.Startable;
@@ -39,6 +40,8 @@ import java.util.Objects;
 
 public class Execution extends AbstractExecution implements Startable
 {
+    public static final String METHOD_NAME = "methodName";
+
     private Stage runtime;
     private LocalObjects objects;
 
@@ -119,15 +122,26 @@ public class Execution extends AbstractExecution implements Startable
             objects.registerLocalObject(invocation.getToReference());
             entry = objects.findLocalObjectByReference(invocation.getToReference());
         }
+
         // queues the invocation
         final LocalObjects.LocalObjectEntry<Object> theEntry = entry;
-        final Task result = entry.run(target -> performInvocation(ctx, invocation, theEntry, target));
+        final Task result = entry.run(target -> {
+            final Task<Object> invocationTask = performInvocation(ctx, invocation, theEntry, target);
+
+            final String methodName = invocationTask.getMetadata(METHOD_NAME);
+            runtime.getAllExtensions(ActivationReasonExtension.class).forEach(v -> v.onActivation((AbstractActor)target.getObject(), methodName));
+            return invocationTask;
+        });
+
         if (invocation.getCompletion() != null)
         {
             InternalUtils.linkFuturesOnError(result, invocation.getCompletion());
         }
+
         // yielding since we blocked the entry before running on activate (serialized execution)
-        return Task.done();
+        Task<Void> resultTask = Task.done();
+        resultTask.putMetadata(METHOD_NAME, "activate");
+        return resultTask;
     }
 
     @SuppressWarnings("unchecked")
@@ -137,6 +151,8 @@ public class Execution extends AbstractExecution implements Startable
             final LocalObjects.LocalObjectEntry entry,
             final LocalObjects.LocalObjectEntry target)
     {
+        ObjectInvoker invoker = null;
+
         if (logger.isDebugEnabled())
         {
             logger.debug("Invoking {} ", invocation);
@@ -159,7 +175,7 @@ public class Execution extends AbstractExecution implements Startable
                 return Task.fromValue(null);
             }
 
-            final ObjectInvoker invoker = DefaultDescriptorFactory.get().getInvoker(target.getObject().getClass());
+            invoker = DefaultDescriptorFactory.get().getInvoker(target.getObject().getClass());
             return invocationHandler.invoke(runtime, invocation, entry, target, invoker);
         }
         catch (Throwable exception)
@@ -172,7 +188,18 @@ public class Execution extends AbstractExecution implements Startable
             {
                 invocation.getCompletion().completeExceptionally(exception);
             }
-            return Task.fromException(exception);
+
+            final Task<Object> exceptionTask = Task.fromException(exception);
+            String methodName = "(unknown)";
+            try {
+                if ( invoker != null ) {
+                    methodName = invoker.getMethod(invocation.getMethodId()).getName();
+                }
+            } catch ( Throwable t ) {
+                // eat it
+            }
+            exceptionTask.putMetadata(METHOD_NAME, methodName);
+            return exceptionTask;
         }
     }
 

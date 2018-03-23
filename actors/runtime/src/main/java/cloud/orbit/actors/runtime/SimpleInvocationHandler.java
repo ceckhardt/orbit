@@ -28,18 +28,21 @@
 
 package cloud.orbit.actors.runtime;
 
-import org.jetbrains.annotations.Nullable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import cloud.orbit.actors.Stage;
 import cloud.orbit.actors.annotation.Reentrant;
 import cloud.orbit.actors.annotation.SkipUpdateLastAccess;
 import cloud.orbit.actors.extensions.InvocationHandlerExtension;
 import cloud.orbit.concurrent.Task;
 import cloud.orbit.util.AnnotationCache;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Method;
+import java.util.concurrent.Executor;
+
+import static cloud.orbit.actors.runtime.Execution.METHOD_NAME;
 
 /**
  * Simple {@link InvocationHandler} with no support for {@link InvocationHandlerExtension}.
@@ -63,6 +66,7 @@ public class SimpleInvocationHandler implements InvocationHandler
         runtime.bind();
 
         final Method method = invoker.getMethod(invocation.getMethodId());
+        final String methodName = method.getName();
         final boolean reentrant = reentrantCache.isAnnotated(method);
 
         if (!skipUpdateLastAccessAnnotationCache.isAnnotated(method)) {
@@ -86,18 +90,27 @@ public class SimpleInvocationHandler implements InvocationHandler
 
             if (reentrant)
             {
-                context.setDefaultExecutor(r -> entry.run(o ->
-                {
-                    r.run();
-                    return Task.done();
-                }));
+                context.setDefaultExecutor(new Executor() {
+                    private int step = 0;
+                    @Override
+                    public void execute(@NotNull Runnable command) {
+                        int currentStep = this.step++;
+                        entry.run(o ->
+                        {
+                            command.run();
+                            final Task<Void> reentrantStep = Task.done();
+                            reentrantStep.putMetadata(METHOD_NAME, methodName + "-reentrant-step-" + currentStep);
+                            return reentrantStep;
+                        });
+                    }
+                });
             }
             context.setRuntime(runtime);
         }
 
         // Perform the internal invocation
         final Task<Object> invokeResult = doInvoke(runtime, invocation, entry, target, method, reentrant, invoker);
-        invokeResult.putMetadata("methodName", method.getName());
+        invokeResult.putMetadata(METHOD_NAME, methodName);
 
         // Link the result to the completion promise
         if (invocation.getCompletion() != null)
@@ -109,7 +122,7 @@ public class SimpleInvocationHandler implements InvocationHandler
         if (reentrant)
         {
             Task<Object> task = Task.fromValue(null);
-            task.putMetadata("methodName", method.getName());
+            task.putMetadata(METHOD_NAME, method.getName());
             return task;
         }
 
