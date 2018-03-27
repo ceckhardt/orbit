@@ -130,6 +130,7 @@ import java.util.concurrent.ForkJoinTask;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 
+import static cloud.orbit.actors.runtime.Execution.METHOD_NAME;
 import static com.ea.async.Async.await;
 
 @Singleton
@@ -1239,7 +1240,7 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
                                     if (!canceled)
                                     {
                                         Task invokeResult = taskCallable.call();
-                                        invokeResult.putMetadata("methodName", "timerTask");
+                                        invokeResult.putMetadata(METHOD_NAME, "timerTask");
                                         return invokeResult;
                                     }
                                 }
@@ -1248,7 +1249,9 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
                                     logger.warn("Error calling timer", ex);
                                 }
                             }
-                            return (Task) Task.done();
+                            final Task<Void> done = Task.done();
+                            done.putMetadata(METHOD_NAME, "(cancelled timerTask)");
+                            return done;
                         }, 10000);
             }
 
@@ -1384,14 +1387,22 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
                                 public Task<Void> onNext(final T data, final StreamSequenceToken sequenceToken)
                                 {
                                     // runs with the actor execution serialization concerns
-                                    return actorEntry.run(entry -> observer.onNext(data, null));
+                                    return actorEntry.run(entry -> {
+                                        final Task<Void> onNextTask = observer.onNext(data, null);
+                                        onNextTask.putMetadata(METHOD_NAME, observer.getClass().getSimpleName() + ".onNext");
+                                        return onNextTask;
+                                    });
                                 }
 
                                 @Override
                                 public Task<Void> onError(final Exception ex)
                                 {
                                     // runs with the actor execution serialization concerns
-                                    return actorEntry.run(entry -> observer.onError(ex));
+                                    return actorEntry.run(entry -> {
+                                        final Task<Void> onErrorTask = observer.onError(ex);
+                                        onErrorTask.putMetadata(METHOD_NAME, observer.getClass().getSimpleName() + ".onError");
+                                        return onErrorTask;
+                                    });
                                 }
                             }, sequenceToken);
 

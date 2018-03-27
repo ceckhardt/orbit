@@ -28,6 +28,7 @@
 
 package cloud.orbit.actors.runtime;
 
+import cloud.orbit.actors.extensions.ActivationReasonExtension;
 import cloud.orbit.actors.extensions.ActorConstructionExtension;
 import cloud.orbit.actors.extensions.LifetimeExtension;
 import cloud.orbit.actors.streams.AsyncStream;
@@ -41,6 +42,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.WeakHashMap;
 
+import static cloud.orbit.actors.runtime.Execution.METHOD_NAME;
 import static com.ea.async.Async.await;
 
 public class ActorEntry<T extends AbstractActor> extends ActorBaseEntry<T>
@@ -93,13 +95,40 @@ public class ActorEntry<T extends AbstractActor> extends ActorBaseEntry<T>
 
     private <R> Task<R> doRunInternal(final TaskFunction<LocalObjects.LocalObjectEntry<T>, R> function, final ActorTaskContext actorTaskContext)
     {
-        if (actor == null && !isDeactivated())
+        boolean actorWasActivated = false;
+        Task<Void> activateTask = Task.done();
+        if ( actor == null && !isDeactivated() )
         {
-            this.actor = await(activate());
-            runtime.bind();
+            actorWasActivated = true;
+            activateTask = activate()
+                    .thenAccept(actor -> {
+                        this.actor = actor;
+                        runtime.bind();
+                    });
         }
-        actorTaskContext.setActor(this.getObject());
-        return function.apply(this);
+
+        final boolean shouldSendActivationReason = actorWasActivated;
+
+        // Unfortunately, if the actor had to be activated through this pathway, there's no good way to know the correct
+        // method name ahead of time. If possible, we'll use the methodName taken from the internal call; otherwise we
+        // will have to make do with "activate-for-unknown-task".
+        final Task<R> result = new Task<>();
+        result.putMetadata(METHOD_NAME, "activate-for-unknown-task");
+
+        final Task<Void> activateThenApplyTask = activateTask.thenRun(() -> {
+            actorTaskContext.setActor(this.getObject());
+            final Task<R> applyTask = function.apply(this);
+            final String methodName = applyTask.getMetadata(METHOD_NAME);
+            result.putMetadata(METHOD_NAME, methodName);
+
+            if ( shouldSendActivationReason ) {
+                runtime.getAllExtensions(ActivationReasonExtension.class).forEach(v -> v.onActivation(this.getObject(), methodName));
+            }
+        });
+
+        InternalUtils.linkFutures(activateThenApplyTask, result);
+
+        return result;
     }
 
     protected Task<T> activate()
@@ -126,37 +155,44 @@ public class ActorEntry<T extends AbstractActor> extends ActorBaseEntry<T>
         actor.logger = loggerExtension.getLogger(actor);
         actor.activation = this;
 
-        await(Task.allOf(runtime.getAllExtensions(LifetimeExtension.class).stream().map(v -> v.preActivation(actor))));
-
-        if (actor.stateExtension != null)
-        {
-            try
-            {
-                await(actor.readState());
-            }
-            catch (final Exception ex)
-            {
-                if (actor.logger.isErrorEnabled())
+        Task<T> activateTask = Task.allOf(runtime.getAllExtensions(LifetimeExtension.class).stream().map(v -> v.preActivation(actor)))
+            .thenCompose(() -> {
+                if (actor.stateExtension != null)
                 {
-                    actor.logger.error("Error reading actor state for: " + reference, ex);
+                    try
+                    {
+                        return actor.readState();
+                    }
+                    catch (final Exception ex)
+                    {
+                        if (actor.logger.isErrorEnabled())
+                        {
+                            actor.logger.error("Error reading actor state for: " + reference, ex);
+                        }
+                        throw ex;
+                    }
                 }
-                throw ex;
-            }
-        }
-        try
-        {
-            await(actor.activateAsync());
-        }
-        catch (final Exception ex)
-        {
-            if (actor.logger.isErrorEnabled())
-            {
-                actor.logger.error("Error activating actor for: " + reference, ex);
-            }
-            throw ex;
-        }
-        await(Task.allOf(runtime.getAllExtensions(LifetimeExtension.class).stream().map(v -> v.postActivation(actor))));
-        return Task.fromValue((T) actor);
+                return Task.fromValue(false);
+            })
+            .thenCompose(wasReadFromStorageExtension -> {
+                try
+                {
+                    return actor.activateAsync();
+                }
+                catch (final Exception ex)
+                {
+                    if (actor.logger.isErrorEnabled())
+                    {
+                        actor.logger.error("Error activating actor for: " + reference, ex);
+                    }
+                    throw ex;
+                }
+            })
+            .thenCompose(() -> Task.allOf(runtime.getAllExtensions(LifetimeExtension.class).stream().map(v -> v.postActivation(actor))))
+            .thenReturn(() -> (T) actor);
+
+        activateTask.putMetadata(METHOD_NAME, "activate");
+        return activateTask;
     }
 
     /**
@@ -192,48 +228,38 @@ public class ActorEntry<T extends AbstractActor> extends ActorBaseEntry<T>
 
     protected Task<Void> doDeactivate()
     {
-        if (actor != null)
-        {
-            try
-            {
-                await(deactivate(getObject()));
-            }
-            catch (final Throwable ex)
-            {
-                try
-                {
-                    getLogger().error("Error deactivating " + getRemoteReference(), ex);
-                }
-                catch (final Throwable ex2)
-                {
-                    ex.printStackTrace();
-                    ex2.printStackTrace();
-                }
-            }
-            finally
-            {
-                actor = null;
-            }
+        Task<Void> deactivateTask;
+        if ( actor == null ) {
+            deactivateTask = Task.done();
+        } else {
+            deactivateTask = deactivate(getObject())
+                    .exceptionally(ex -> {
+                        try {
+                            getLogger().error("Error deactivating " + getRemoteReference(), ex);
+                        } catch ( final Throwable ex2 ) {
+                            ex.printStackTrace();
+                            ex2.printStackTrace();
+                        }
+                        return null;
+                    });
         }
-        setDeactivated(true);
-        return Task.done();
+
+        final Task<Void> doDeactivateTask = deactivateTask.thenRun(() -> setDeactivated(true));
+        doDeactivateTask.putMetadata(METHOD_NAME, "deactivate");
+        return doDeactivateTask;
     }
 
     protected Task<Void> deactivate(final T actor)
     {
-        await(Task.allOf(runtime.getAllExtensions(LifetimeExtension.class).stream().map(v -> v.preDeactivation(actor))));
-        try
-        {
-            await(actor.deactivateAsync());
-        }
-        catch (final Throwable ex)
-        {
-            getLogger().error("Error on actor " + reference + " deactivation", ex);
-        }
-        clearTimers();
-        await(clearStreamSubscriptions());
-        await(Task.allOf(runtime.getAllExtensions(LifetimeExtension.class).stream().map(v -> v.postDeactivation(actor))));
-        return Task.done();
+        return Task.allOf(runtime.getAllExtensions(LifetimeExtension.class).stream().map(v -> v.preDeactivation(actor)))
+                .thenCompose(actor::deactivateAsync)
+                .exceptionally(ex -> {
+                    getLogger().error("Error on actor " + reference + " deactivation", ex);
+                    return null;
+                })
+                .thenRun(this::clearTimers)
+                .thenCompose(this::clearStreamSubscriptions)
+                .thenCompose(() -> Task.allOf(runtime.getAllExtensions(LifetimeExtension.class).stream().map(v -> v.postDeactivation(actor))));
     }
 
 

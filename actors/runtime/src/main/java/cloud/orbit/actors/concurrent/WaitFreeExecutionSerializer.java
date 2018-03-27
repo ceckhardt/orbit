@@ -28,16 +28,16 @@
 
 package cloud.orbit.actors.concurrent;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import cloud.orbit.actors.runtime.InternalUtils;
 import cloud.orbit.concurrent.Task;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
+import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 
 /**
@@ -85,7 +85,7 @@ public class WaitFreeExecutionSerializer implements ExecutionSerializer, Executo
         }
 
         final long timeAddedToQueue = System.currentTimeMillis();
-        if (queueSize >= maxQueueSize || !queue.add(getTaskSupplier(taskSupplier, completion, timeAddedToQueue)))
+        if (queueSize >= maxQueueSize || !queue.add(getTaskSupplier(taskSupplier, completion, timeAddedToQueue, queueSize)))
         {
             throw new IllegalStateException(String.format("Queue full for %s (%d > %d)", key, queue.size(), maxQueueSize));
         }
@@ -98,13 +98,20 @@ public class WaitFreeExecutionSerializer implements ExecutionSerializer, Executo
         return completion;
     }
 
-    private <R> Supplier<Task<?>> getTaskSupplier(final Supplier<Task<R>> taskSupplier, final Task<R> completion, final long timeAddedToQueue)
-    {
+    private <R> Supplier<Task<?>> getTaskSupplier(
+            final Supplier<Task<R>> taskSupplier,
+            final Task<R> completion,
+            final long timeAddedToQueue,
+            final int queueSize
+    ) {
         return () ->
         {
+            long timePoppedFromQueue = System.currentTimeMillis();
             Task<R> source = InternalUtils.safeInvoke(taskSupplier);
+            long timeSelfExecutionComplete = System.currentTimeMillis();
 
             addedToQueue(timeAddedToQueue, source);
+            onExecutionStarted(source, timeAddedToQueue, timePoppedFromQueue, timeSelfExecutionComplete, queueSize);
 
             InternalUtils.linkFutures(source, completion);
             return source;
@@ -157,22 +164,30 @@ public class WaitFreeExecutionSerializer implements ExecutionSerializer, Executo
                             if (!task.isDone())
                             {
                                 // this will run whenComplete in another thread
-                                task.whenCompleteAsync(WaitFreeExecutionSerializer.this::whenCompleteAsync, executorService);
+                                task.whenCompleteAsync(createOnInvocationCompleteHandler(task), executorService);
                                 // returning without unlocking, onComplete will do it;
                                 return;
                             }
+
+                            onExecutionComplete(task);
                             unlock();
                             tryExecute(true);
                         });
                         return;
                     }
 
-                    if (taskFuture != null && !taskFuture.isDone())
+                    if (taskFuture != null)
                     {
-                        // this will run whenComplete in another thread
-                        taskFuture.whenCompleteAsync(this::whenCompleteAsync, executorService);
-                        // returning without unlocking, onComplete will do it;
-                        return;
+                        if (taskFuture.isDone()) {
+                            onExecutionComplete(taskFuture);
+                        }
+                        else
+                        {
+                            // this will run whenComplete in another thread
+                            taskFuture.whenCompleteAsync(createOnInvocationCompleteHandler(taskFuture), executorService);
+                            // returning without unlocking, onComplete will do it;
+                            return;
+                        }
                     }
                 }
                 catch (Throwable ex)
@@ -195,12 +210,54 @@ public class WaitFreeExecutionSerializer implements ExecutionSerializer, Executo
         } while (!queue.isEmpty());
     }
 
+    /**
+     * @deprecated This method's name is deceptive: it is executed when the task is popped from the queue for execution,
+     * not when the task is actually added to the queue. Prefer the newer onExecutionStarted(), onExecutionComplete().
+     */
+    @Deprecated
     protected <R> void addedToQueue(final long timeAddedToQueue, final Task<R> source)
     {
     }
 
+    @Deprecated
     protected void executedFromQueue(final Task<?> task)
     {
+    }
+
+    /**
+     * Called immediately after an actor invocation has been executed and returned a Task. Provides timestamps for when
+     * that invocation entered the actor's queue, was popped for execution, and when that invocation returned its Task
+     * (the returned Task may or may not be complete yet).
+     *
+     * @param task A Task as returned from the actor's method. In the `@Reentrant` case, this is `Task.fromValue(null)`.
+     * @param timeAddedToQueue A timestamp taken when the invocation was enqueued.
+     * @param timePoppedFromQueue A timestamp taken when the invocation was pulled out of the queue to be executed.
+     * @param timeSelfExecutionComplete A timestamp taken when the invocation had finished returning a Task that
+     *                                  represents any asynchronous computation.
+     * @param queueSize The number of elements _ahead of_ this invocation in the Actor's queue when it was enqueued.
+     */
+    protected void onExecutionStarted(
+            final Task<?> task,
+            final long timeAddedToQueue,
+            final long timePoppedFromQueue,
+            final long timeSelfExecutionComplete,
+            final int queueSize
+    ) {
+        // do-nothing: this is an extension point
+    }
+
+    /**
+     * Called immediately after an actor invocation's returned Task has become complete (whether normally or
+     * exceptionally), but before the execution serializer has started the next Task in the queue.
+     *
+     * NOTE: Methods that have been annotated with `@Reentrant` will call this method immediately, before the underlying
+     * execution is actually complete.
+     *
+     * @param task A Task as returned from the actor's method. In the `@Reentrant` case, this is `Task.fromValue(null)`.
+     */
+    protected void onExecutionComplete(Task<?> task)
+    {
+        // do-nothing: this is an extension point
     }
 
     private void wrapExecution(final Supplier<Task<?>> toRun, final Task<?> taskFuture)
@@ -244,6 +301,13 @@ public class WaitFreeExecutionSerializer implements ExecutionSerializer, Executo
     private boolean lock()
     {
         return lockUpdater.compareAndSet(this, 0, 1);
+    }
+
+    private <T> BiConsumer<T, Throwable> createOnInvocationCompleteHandler(Task<?> task) {
+        return (result, error) -> {
+            onExecutionComplete(task);
+            this.whenCompleteAsync(result, error);
+        };
     }
 
     private <T> void whenCompleteAsync(T result, Throwable error)
