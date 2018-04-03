@@ -115,7 +115,7 @@ public class ActorEntry<T extends AbstractActor> extends ActorBaseEntry<T>
         final Task<R> result = new Task<>();
         result.putMetadata(METHOD_NAME, "activate-for-unknown-task");
 
-        final Task<Void> activateThenApplyTask = activateTask.thenRun(() -> {
+        final Task<R> activateThenApplyTask = activateTask.thenCompose(() -> {
             actorTaskContext.setActor(this.getObject());
             final Task<R> applyTask = function.apply(this);
             final String methodName = applyTask.getMetadata(METHOD_NAME);
@@ -124,6 +124,8 @@ public class ActorEntry<T extends AbstractActor> extends ActorBaseEntry<T>
             if ( shouldSendActivationReason ) {
                 runtime.getAllExtensions(ActivationReasonExtension.class).forEach(v -> v.onActivation(this.getObject(), methodName));
             }
+
+            return applyTask;
         });
 
         InternalUtils.linkFutures(activateThenApplyTask, result);
