@@ -207,6 +207,9 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
     @Config("orbit.actors.numReminderControllers")
     private int numReminderControllers = 1;
 
+    @Config("orbit.actors.reminderController.autostart")
+    private boolean autoStartReminderControllers = true;
+
     @Config("orbit.actors.broadcastActorDeactivations")
     private boolean broadcastActorDeactivations = true;
 
@@ -282,6 +285,7 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         private Long actorTTLMillis = null;
         private Long localAddressCacheTTLMillis = null;
         private Integer numReminderControllers = null;
+        private Boolean autoStartReminderControllers = null;
         private Boolean broadcastActorDeactivations = null;
         private Long deactivationTimeoutMillis;
         private Integer concurrentDeactivations;
@@ -454,6 +458,12 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
             return this;
         }
 
+        public Builder autoStartReminderControllers(final boolean autoStart)
+        {
+            this.autoStartReminderControllers = autoStart;
+            return this;
+        }
+
         public Builder deactivationTimeout(final long duration, final TimeUnit timeUnit)
         {
             this.deactivationTimeoutMillis = timeUnit.toMillis(duration);
@@ -505,6 +515,7 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
             if(actorTTLMillis != null) stage.setDefaultActorTTL(actorTTLMillis);
             if(localAddressCacheTTLMillis != null) stage.setLocalAddressCacheTTL(localAddressCacheTTLMillis);
             if(numReminderControllers != null) stage.setNumReminderControllers(numReminderControllers);
+            if(autoStartReminderControllers != null) stage.setAutoStartReminderControllers(autoStartReminderControllers);
             if(deactivationTimeoutMillis != null) stage.setDeactivationTimeout(deactivationTimeoutMillis);
             if(concurrentDeactivations != null) stage.setConcurrentDeactivations(concurrentDeactivations);
             if(broadcastActorDeactivations != null) stage.setBroadcastActorDeactivations(broadcastActorDeactivations);
@@ -689,6 +700,11 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
             throw new IllegalArgumentException("Must specify at least 1 reminder controller shard");
         }
         this.numReminderControllers = numReminderControllers;
+    }
+
+    public void setAutoStartReminderControllers(final boolean autoStart)
+    {
+        this.autoStartReminderControllers = autoStart;
     }
 
     public void setDeactivationTimeout(long deactivationTimeoutMs)
@@ -998,6 +1014,11 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
 
     private void startReminderController()
     {
+        if (!autoStartReminderControllers)
+        {
+            return;
+        }
+        
         if(useReminderShards())
         {
             IntStream.range(0, numReminderControllers).forEach(i ->
