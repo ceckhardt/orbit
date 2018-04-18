@@ -652,11 +652,6 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
 
     public void setNumReminderControllers(final int numReminderControllers)
     {
-        if (!autoStartReminderControllers)
-        {
-            return;
-        }
-        
         if(numReminderControllers < 1)
         {
             throw new IllegalArgumentException("Must specify at least 1 reminder controller shard");
@@ -939,6 +934,11 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
 
     private void startReminderController()
     {
+        if (!autoStartReminderControllers)
+        {
+            return;
+        }
+
         if(useReminderShards())
         {
             IntStream.range(0, numReminderControllers).forEach(i ->
