@@ -1152,6 +1152,15 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         return hosting.getServerNodes();
     }
 
+    public List<NodeAddress> getRunningServerNodes()
+    {
+        if (hosting == null)
+        {
+            return Collections.emptyList();
+        }
+        return hosting.getServerNodes();
+    }
+
     public NodeCapabilities.NodeState getState()
     {
         return state;

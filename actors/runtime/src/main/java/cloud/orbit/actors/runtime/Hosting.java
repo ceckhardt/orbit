@@ -144,6 +144,19 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
         return Collections.unmodifiableList(set);
     }
 
+    public List<NodeAddress> getRunningServerNodes()
+    {
+        final ArrayList<NodeAddress> set = new ArrayList<>(serverNodes.size());
+        for (final NodeInfo s : serverNodes)
+        {
+            if (s.state == NodeState.RUNNING)
+            {
+                set.add(s.address);
+            }
+        }
+        return Collections.unmodifiableList(set);
+    }
+
     public Task<?> notifyStateChange()
     {
         return Task.allOf(activeNodes.values().stream()
