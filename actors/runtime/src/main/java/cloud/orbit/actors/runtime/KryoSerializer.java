@@ -1,10 +1,8 @@
 /*
  Copyright (C) 2017 Electronic Arts Inc.  All rights reserved.
-
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the following conditions
  are met:
-
  1.  Redistributions of source code must retain the above copyright
      notice, this list of conditions and the following disclaimer.
  2.  Redistributions in binary form must reproduce the above copyright
@@ -13,7 +11,6 @@
  3.  Neither the name of Electronic Arts, Inc. ("EA") nor the names of
      its contributors may be used to endorse or promote products derived
      from this software without specific prior written permission.
-
  THIS SOFTWARE IS PROVIDED BY ELECTRONIC ARTS AND ITS CONTRIBUTORS "AS IS" AND ANY
  EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
  WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -59,8 +56,8 @@ import de.javakaffee.kryoserializers.SynchronizedCollectionsSerializer;
 import de.javakaffee.kryoserializers.UUIDSerializer;
 import de.javakaffee.kryoserializers.UnmodifiableCollectionsSerializer;
 
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.io.Serializable;
 import java.lang.reflect.InvocationHandler;
 import java.util.Arrays;
@@ -78,7 +75,11 @@ import java.util.function.Consumer;
  */
 public class KryoSerializer implements ExecutionObjectCloner, MessageSerializer
 {
+    private static final int DEFAULT_BUFFER_SIZE = 4096;
+
     private final KryoPool kryoPool;
+    private final KryoOutputPool outputPool = new KryoOutputPool();
+    private final KryoInputPool inputPool = new KryoInputPool();
 
     public KryoSerializer()
     {
@@ -387,13 +388,14 @@ public class KryoSerializer implements ExecutionObjectCloner, MessageSerializer
     }
 
     @Override
-    public Message deserializeMessage(BasicRuntime basicRuntime, InputStream inputStream) throws Exception
+    public Message deserializeMessage(BasicRuntime basicRuntime, final byte[] payload) throws Exception
     {
-        return kryoPool.run(kryo ->
+        return inputPool.run(in ->
         {
-            try (Input in = new Input(inputStream))
+            in.setInputStream(new ByteArrayInputStream(payload));
+            return kryoPool.run(kryo ->
             {
-                Message message = new Message();
+                final Message message = new Message();
                 message.setMessageType(in.readByte());
                 message.setMessageId(in.readInt());
                 message.setReferenceAddress(readNodeAddress(in));
@@ -404,8 +406,8 @@ public class KryoSerializer implements ExecutionObjectCloner, MessageSerializer
                 message.setFromNode(readNodeAddress(in));
                 message.setPayload(readPayload(kryo, in));
                 return message;
-            }
-        });
+            });
+        }, DEFAULT_BUFFER_SIZE);
     }
 
     private static Object readPayload(Kryo kryo, Input in)
@@ -468,11 +470,11 @@ public class KryoSerializer implements ExecutionObjectCloner, MessageSerializer
     }
 
     @Override
-    public void serializeMessage(BasicRuntime basicRuntime, OutputStream outputStream, Message message) throws Exception
+    public byte[] serializeMessage(BasicRuntime basicRuntime, Message message) throws Exception
     {
-        kryoPool.run(kryo ->
+        return outputPool.run(out ->
         {
-            try (Output out = new Output(outputStream))
+            return kryoPool.run(kryo ->
             {
                 out.writeByte(message.getMessageType());
                 out.writeInt(message.getMessageId());
@@ -483,9 +485,10 @@ public class KryoSerializer implements ExecutionObjectCloner, MessageSerializer
                 writeHeaders(kryo, out, message.getHeaders());
                 writeNodeAddress(out, message.getFromNode());
                 writePayload(kryo, out, message);
-                return null;
-            }
-        });
+                out.flush();
+                return out.getByteArrayOutputStream().toByteArray();
+            });
+        }, DEFAULT_BUFFER_SIZE);
     }
 
     private static void writePayload(Kryo kryo, Output out, Message message)

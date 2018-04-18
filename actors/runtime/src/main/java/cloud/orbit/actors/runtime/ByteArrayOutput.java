@@ -1,5 +1,5 @@
 /*
- Copyright (C) 2016 Electronic Arts Inc.  All rights reserved.
+ Copyright (C) 2018 Electronic Arts Inc.  All rights reserved.
 
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the following conditions
@@ -26,17 +26,27 @@
  THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package cloud.orbit.actors.extensions;
+package cloud.orbit.actors.runtime;
 
-import cloud.orbit.actors.runtime.BasicRuntime;
-import cloud.orbit.actors.runtime.Message;
+import com.esotericsoftware.kryo.io.Output;
 
 /**
- * Extension interface to define how actor messages are serialized.
+ * Convenience class to avoid extra object allocation and casting.
  */
-public interface MessageSerializer extends ActorExtension
+final class ByteArrayOutput extends Output
 {
-    Message deserializeMessage(final BasicRuntime runtime, final byte[] payload) throws Exception;
 
-    byte[] serializeMessage(final BasicRuntime runtime, Message message) throws Exception;
+    private final BufferAwareByteArrayOutputStream stream;
+
+    ByteArrayOutput(final int bufferSize, final int maxBufferSize, final BufferAwareByteArrayOutputStream stream)
+    {
+        super(bufferSize, maxBufferSize);
+        super.setOutputStream(stream);
+        this.stream = stream;
+    }
+
+    BufferAwareByteArrayOutputStream getByteArrayOutputStream()
+    {
+        return stream;
+    }
 }
