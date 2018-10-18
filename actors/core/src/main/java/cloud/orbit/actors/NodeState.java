@@ -1,5 +1,5 @@
 /*
- Copyright (C) 2016 Electronic Arts Inc.  All rights reserved.
+ Copyright (C) 2018 Electronic Arts Inc.  All rights reserved.
 
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the following conditions
@@ -26,10 +26,16 @@
  THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package cloud.orbit.actors.cluster;
+package cloud.orbit.actors;
 
-@FunctionalInterface
-public interface ViewListener
+/**
+ * A <tt>NodeState</tt> describes the state of a node. A Node will only ever describe itself as RUNNING, STOPPING, or
+ * STOPPED. In the case of issues with clustering, a Node may consider another node to be in the PRESUMED_DEAD state.
+ */
+public enum NodeState
 {
-    void onViewChange(final ClusterView clusterView);
+    RUNNING,
+    STOPPING,
+    STOPPED,
+    PRESUMED_DEAD
 }

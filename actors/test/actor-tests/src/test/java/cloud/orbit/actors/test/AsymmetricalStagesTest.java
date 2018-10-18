@@ -32,6 +32,7 @@ import org.junit.Test;
 
 import cloud.orbit.actors.Actor;
 import cloud.orbit.actors.Stage;
+import cloud.orbit.actors.cluster.ClusterPeer;
 import cloud.orbit.actors.runtime.Execution;
 import cloud.orbit.actors.runtime.LazyActorClassFinder;
 import cloud.orbit.actors.runtime.Messaging;
@@ -46,6 +47,7 @@ import cloud.orbit.concurrent.Task;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
@@ -67,8 +69,8 @@ public class AsymmetricalStagesTest extends ActorBaseTest
     public void asymmetricalNodeTest() throws ExecutionException, InterruptedException, NoSuchFieldException, IllegalAccessException
     {
         // Asymmetrical nodes, one has Match other has Player, both have SomeActor
-        Stage stage1 = createStage(SomeMatchActor.class);
-        Stage stage2 = createStage(SomePlayerActor.class);
+        Stage stage1 = createStage(SomeMatch.class);
+        Stage stage2 = createStage(SomePlayer.class);
 
         final List<Task<String>> tasksA = new ArrayList<>();
         final List<Task<String>> tasksP = new ArrayList<>();
@@ -115,6 +117,31 @@ public class AsymmetricalStagesTest extends ActorBaseTest
     }
 
     @Override
+    protected ClusterPeer createClusterPeer()
+    {
+        final HashSet<String> hostableActorInterfaces = new HashSet<String>()
+        {
+            private List<String> excluded = excludedClasses.stream().map(Class::getName).collect(Collectors.toList());
+
+            @Override
+            public boolean contains(final Object o)
+            {
+                return !excluded.contains(o); // allow anything except the excludedClasses
+            }
+
+            @Override
+            public String toString()
+            {
+                return "!" + excluded.toString();
+            }
+        };
+
+        logger.info("hostable = {}", hostableActorInterfaces);
+
+        return new FakeClusterPeer(hostableActorInterfaces);
+    }
+
+    @Override
     protected void installExtensions(final Stage stage)
     {
         super.installExtensions(stage);
@@ -122,7 +149,7 @@ public class AsymmetricalStagesTest extends ActorBaseTest
         if (classes != null)
         {
             this.excludedClasses = null;
-            stage.addExtension(new LazyActorClassFinder()
+            final LazyActorClassFinder actorClassFinder = new LazyActorClassFinder()
             {
                 @Override
                 public <T extends Actor> Class<? extends T> findActorImplementation(Class<T> actorInterface)
@@ -130,7 +157,8 @@ public class AsymmetricalStagesTest extends ActorBaseTest
                     Class<? extends T> c = super.findActorImplementation(actorInterface);
                     return classes.contains(c) ? null : c;
                 }
-            });
+            };
+            stage.addExtension(actorClassFinder);
         }
     }
 

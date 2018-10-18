@@ -73,12 +73,16 @@ public class ConstructionTest {
                 .extensions(new TestConstructionExtension())
                 .build();
 
-        try {
+        try
+        {
 
             stage.start().join();
 
             final TestConstruction actor = Actor.getReference(TestConstruction.class, "0");
             assertEquals(OTHER_ID, actor.getId().get());
+
+        } catch ( Exception e ) {
+            e.printStackTrace();
 
         } finally {
             stage.stop().join();

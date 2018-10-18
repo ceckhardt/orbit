@@ -81,7 +81,6 @@ import cloud.orbit.actors.runtime.LocalObjects;
 import cloud.orbit.actors.runtime.LocalObjectsCleaner;
 import cloud.orbit.actors.runtime.MessageLoopback;
 import cloud.orbit.actors.runtime.Messaging;
-import cloud.orbit.actors.runtime.NodeCapabilities;
 import cloud.orbit.actors.runtime.ObserverEntry;
 import cloud.orbit.actors.runtime.RandomSelectorExtension;
 import cloud.orbit.actors.runtime.Registration;
@@ -186,7 +185,7 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
     private List<String> basePackages = new ArrayList<>();
 
     @Config("orbit.actors.pulseInterval")
-    private long pulseIntervalMillis = TimeUnit.SECONDS.toMillis(10);
+    private long pulseIntervalMillis = TimeUnit.SECONDS.toMillis(1);
 
     @Config("orbit.actors.concurrentDeactivations")
     private int concurrentDeactivations = 16;
@@ -209,7 +208,7 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
     @Config("orbit.actors.broadcastActorDeactivations")
     private boolean broadcastActorDeactivations = true;
 
-    private volatile NodeCapabilities.NodeState state;
+    private volatile NodeState state;
 
     private ClusterPeer clusterPeer;
     private Messaging messaging;
@@ -689,7 +688,7 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         {
             throw new IllegalStateException("Can't start the stage at this state. " + this.toString());
         }
-        state = NodeCapabilities.NodeState.RUNNING;
+        state = NodeState.RUNNING;
 
         if(timer == null)
         {
@@ -801,7 +800,8 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
                     return responseCaching;
                 });
 
-        hosting.setNodeType(mode == StageMode.HOST ? NodeCapabilities.NodeTypeEnum.SERVER : NodeCapabilities.NodeTypeEnum.CLIENT);
+        final NodeType nodeType = mode == StageMode.HOST ? NodeType.SERVER : NodeType.CLIENT;
+        hosting.setNodeType(nodeType);
         execution.setRuntime(this);
         execution.setObjects(objects);
         execution.setExecutionSerializer(executionSerializer);
@@ -838,7 +838,7 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         pipeline.addLast(DefaultHandlers.SERIALIZATION, new SerializationHandler(this, messageSerializer));
 
         // cluster peer handler
-        pipeline.addLast(DefaultHandlers.NETWORK, new ClusterHandler(clusterPeer, clusterName, nodeName));
+        pipeline.addLast(DefaultHandlers.NETWORK, new ClusterHandler(clusterPeer, clusterName, nodeName, nodeType));
 
         extensions.stream().filter(extension -> extension instanceof PipelineExtension)
                 .map(extension -> (PipelineExtension) extension)
@@ -902,7 +902,7 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
                 @Override
                 public void run()
                 {
-                    if (state == NodeCapabilities.NodeState.RUNNING)
+                    if (state == NodeState.RUNNING)
                     {
                         ForkJoinTask.adapt(() -> pulse().join()).fork();
                     }
@@ -986,12 +986,12 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
     @Override
     public Task<?> stop()
     {
-        if (getState() != NodeCapabilities.NodeState.RUNNING)
+        if (getState() != NodeState.RUNNING)
         {
             throw new IllegalStateException("Stage node state is not running, state: " + getState());
         }
 
-        state = NodeCapabilities.NodeState.STOPPING;
+        state = NodeState.STOPPING;
 
         // * refuse new actor activations
         // first notify other nodes
@@ -1028,7 +1028,7 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         logger.debug("Stopping extensions");
         await(stopExtensions());
 
-        state = NodeCapabilities.NodeState.STOPPED;
+        state = NodeState.STOPPED;
         logger.debug("Stop done");
 
         return Task.done();
@@ -1161,7 +1161,7 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         return hosting.getRunningServerNodes();
     }
 
-    public NodeCapabilities.NodeState getState()
+    public NodeState getState()
     {
         return state;
     }
@@ -1184,7 +1184,7 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
     @Override
     public Task<?> invoke(final RemoteReference toReference, final Method m, final boolean oneWay, final int methodId, final Object[] params)
     {
-        if (state == NodeCapabilities.NodeState.STOPPED)
+        if (state == NodeState.STOPPED)
         {
             throw new IllegalStateException("Stage is stopped. " + this.toString());
         }
@@ -1251,7 +1251,7 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
             @Override
             public void run()
             {
-                if (localActor.isDeactivated() || state == NodeCapabilities.NodeState.STOPPED)
+                if (localActor.isDeactivated() || state == NodeState.STOPPED)
                 {
                     cancel();
                     return;
@@ -1259,7 +1259,7 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
 
                 executionSerializer.offerJob(key,
                         () -> {
-                            if (localActor.isDeactivated() || state == NodeCapabilities.NodeState.STOPPED)
+                            if (localActor.isDeactivated() || state == NodeState.STOPPED)
                             {
                                 cancel();
                             }
@@ -1533,7 +1533,7 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
 
     public boolean canActivateActor(final String interfaceName)
     {
-        if (getState() != NodeCapabilities.NodeState.RUNNING)
+        if (getState() != NodeState.RUNNING)
         {
             // todo, improve this
             if (hosting.getServerNodes().size() > 1)

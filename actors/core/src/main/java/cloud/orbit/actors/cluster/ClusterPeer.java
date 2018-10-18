@@ -28,6 +28,8 @@
 
 package cloud.orbit.actors.cluster;
 
+import cloud.orbit.actors.NodeState;
+import cloud.orbit.actors.NodeType;
 import cloud.orbit.concurrent.Task;
 
 import java.util.concurrent.ConcurrentMap;
@@ -83,7 +85,15 @@ public interface ClusterPeer
      * @param nodeName the name of this node
      * @return future representing the completion of the joining process.
      */
-    Task<?> join(String clusterName, String nodeName);
+    Task<?> join(String clusterName, String nodeName, NodeType nodeType);
+
+    /**
+     * Pushes a new NodeState for this node and waits until the cluster agrees on the new NodeState.
+     *
+     * @param newNodeState
+     * @return
+     */
+    Task<?> notifyStateChange(NodeState newNodeState);
 
     /**
      * Pulses with the stage pulse

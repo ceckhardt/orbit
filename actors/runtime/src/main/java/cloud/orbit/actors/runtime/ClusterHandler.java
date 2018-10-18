@@ -28,6 +28,10 @@
 
 package cloud.orbit.actors.runtime;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import cloud.orbit.actors.NodeType;
 import cloud.orbit.actors.cluster.ClusterPeer;
 import cloud.orbit.actors.cluster.NodeAddress;
 import cloud.orbit.actors.net.HandlerAdapter;
@@ -35,21 +39,20 @@ import cloud.orbit.actors.net.HandlerContext;
 import cloud.orbit.concurrent.Task;
 import cloud.orbit.tuples.Pair;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 public class ClusterHandler extends HandlerAdapter
 {
     private static Logger logger = LoggerFactory.getLogger(ClusterHandler.class);
     private ClusterPeer clusterPeer;
     private String clusterName;
     private String nodeName;
+    private NodeType nodeType;
 
-    public ClusterHandler(final ClusterPeer clusterPeer, final String clusterName, final String nodeName)
+    public ClusterHandler(final ClusterPeer clusterPeer, final String clusterName, final String nodeName, final NodeType nodeType)
     {
         this.clusterPeer = clusterPeer;
         this.clusterName = clusterName;
         this.nodeName = nodeName;
+        this.nodeType = nodeType;
     }
 
     @Override
@@ -69,7 +72,7 @@ public class ClusterHandler extends HandlerAdapter
     {
         logger.info("Connecting handler ClusterHandler...");
         clusterPeer.registerMessageReceiver((n, m) -> ctx.fireRead(Pair.of(n, m)));
-        return clusterPeer.join(clusterName, nodeName).thenRun(() ->
+        return clusterPeer.join(clusterName, nodeName, nodeType).thenRun(() ->
                 {
                     try
                     {

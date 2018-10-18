@@ -33,6 +33,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import cloud.orbit.actors.Actor;
+import cloud.orbit.actors.NodeState;
 import cloud.orbit.actors.Stage;
 import cloud.orbit.actors.runtime.NodeCapabilities;
 import cloud.orbit.actors.runtime.DefaultResponseCachingExtension;
@@ -209,7 +210,7 @@ public class CacheResponseTest extends ActorBaseTest
     @After
     public void stopStage()
     {
-        if (stage.getState() == NodeCapabilities.NodeState.RUNNING)
+        if (stage.getState() == NodeState.RUNNING)
         {
             stage.stop().join();
         }
