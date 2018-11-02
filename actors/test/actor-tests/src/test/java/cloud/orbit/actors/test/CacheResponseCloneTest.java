@@ -29,6 +29,7 @@
 package cloud.orbit.actors.test;
 
 import cloud.orbit.actors.Actor;
+import cloud.orbit.actors.NodeState;
 import cloud.orbit.actors.Stage;
 import cloud.orbit.actors.runtime.KryoSerializer;
 import cloud.orbit.actors.runtime.DefaultResponseCachingExtension;
@@ -173,7 +174,7 @@ public class CacheResponseCloneTest extends ActorBaseTest
     @After
     public void stopStage()
     {
-        if (stage.getState() == NodeCapabilities.NodeState.RUNNING)
+        if (stage.getState() == NodeState.RUNNING)
         {
             stage.stop().join();
         }

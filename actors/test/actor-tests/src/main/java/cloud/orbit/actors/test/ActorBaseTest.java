@@ -39,9 +39,11 @@ import org.junit.runner.Description;
 import org.slf4j.Logger;
 
 import cloud.orbit.actors.Actor;
+import cloud.orbit.actors.NodeState;
 import cloud.orbit.actors.Stage;
 import cloud.orbit.actors.client.ClientPeer;
 import cloud.orbit.actors.cloner.ExecutionObjectCloner;
+import cloud.orbit.actors.cluster.ClusterPeer;
 import cloud.orbit.actors.concurrent.MultiExecutionSerializer;
 import cloud.orbit.actors.concurrent.WaitFreeExecutionSerializer;
 import cloud.orbit.actors.extensions.LifetimeExtension;
@@ -321,7 +323,7 @@ public class ActorBaseTest
                 .objectCloner(getExecutionObjectCloner())
                 .clock(clock)
                 .clusterName(clusterName)
-                .clusterPeer(new FakeClusterPeer())
+                .clusterPeer(createClusterPeer())
                 .messageSerializer(new JavaMessageSerializer());
 
         customizer.accept(builder);
@@ -349,6 +351,11 @@ public class ActorBaseTest
                 });
         stage.bind();
         return stage;
+    }
+
+    protected ClusterPeer createClusterPeer()
+    {
+        return new FakeClusterPeer();
     }
 
     protected void installExtensions(final Stage stage)
@@ -505,7 +512,7 @@ public class ActorBaseTest
         List<Task<?>> tasks = new ArrayList<>();
         for (Stage stage : stages)
         {
-            if (stage.getState() == NodeCapabilities.NodeState.RUNNING)
+            if (stage.getState() == NodeState.RUNNING)
             {
                 tasks.add(stage.stop());
             }

@@ -37,6 +37,7 @@ import cloud.orbit.concurrent.Task;
 public class OnlyIfActivatedActor extends AbstractActor implements OnlyIfActivated
 {
     public static int accessCount = 0;
+    public static int deactivationCount = 0;
 
     @Override
     @SkipUpdateLastAccess
@@ -51,6 +52,13 @@ public class OnlyIfActivatedActor extends AbstractActor implements OnlyIfActivat
     {
         //does really nothing, but allows the actor to be activated
         return Task.done();
+    }
+
+    @Override
+    public Task<?> deactivateAsync()
+    {
+        ++deactivationCount;
+        return super.deactivateAsync();
     }
 }
 

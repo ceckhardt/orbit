@@ -28,16 +28,28 @@
 
 package cloud.orbit.actors.test;
 
+import cloud.orbit.actors.NodeState;
+import cloud.orbit.actors.NodeType;
+import cloud.orbit.actors.cluster.ClusterNodeView;
 import cloud.orbit.actors.cluster.ClusterPeer;
+import cloud.orbit.actors.cluster.ClusterView;
 import cloud.orbit.actors.cluster.MessageListener;
 import cloud.orbit.actors.cluster.NodeAddress;
 import cloud.orbit.actors.cluster.ViewListener;
 import cloud.orbit.concurrent.Task;
+import cloud.orbit.tuples.Pair;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.SortedMap;
+import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Fake group networking peer used during unit tests.
@@ -58,18 +70,37 @@ public class FakeClusterPeer implements ClusterPeer
     private AtomicLong messagesReceived = new AtomicLong();
     private AtomicLong messagesReceivedOk = new AtomicLong();
     private CompletableFuture<?> startFuture = new CompletableFuture<>();
+    private Set<String> hostableActorInterfaces;
 
     public FakeClusterPeer()
     {
+        this.hostableActorInterfaces = new HashSet<String>() {
+            @Override
+            public boolean contains(final Object o)
+            {
+                return true; // just pretend that we accept all actor interfaces so that the tests pass...
+            }
+        };
     }
 
-    public Task<Void> join(final String clusterName, final String nodeName)
+    public FakeClusterPeer(Set<String> hostableActorInterfaces)
+    {
+        this.hostableActorInterfaces = hostableActorInterfaces;
+    }
+
+    public Task<Void> join(final String clusterName, final String nodeName, final NodeType nodeType)
     {
         group = FakeGroup.get(clusterName);
         return Task.runAsync(() -> {
-            address = group.join(this);
+            address = group.join(this, nodeType, hostableActorInterfaces);
             startFuture.complete(null);
         }, group.pool());
+    }
+
+    @Override
+    public Task<?> notifyStateChange(final NodeState newNodeState)
+    {
+        return Task.done();
     }
 
     @Override
@@ -78,9 +109,10 @@ public class FakeClusterPeer implements ClusterPeer
         group.leave(this);
     }
 
-    public void onViewChanged(final List<NodeAddress> newView)
+    public void onViewChanged(final Map<NodeAddress, ClusterNodeView> newView)
     {
-        viewListener.onViewChange(newView);
+        final SortedMap<NodeAddress, ClusterNodeView> nodeViews = new TreeMap<>(newView);
+        viewListener.onViewChange(new ClusterView(nodeViews));
     }
 
     public void onMessageReceived(final NodeAddress from, final byte[] buff)

@@ -1,5 +1,5 @@
 /*
- Copyright (C) 2016 Electronic Arts Inc.  All rights reserved.
+ Copyright (C) 2018 Electronic Arts Inc.  All rights reserved.
 
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the following conditions
@@ -28,68 +28,68 @@
 
 package cloud.orbit.actors.cluster;
 
-import org.jetbrains.annotations.NotNull;
+import cloud.orbit.actors.NodeType;
+import cloud.orbit.actors.NodeState;
 
-import java.io.Serializable;
-import java.util.UUID;
+import java.util.Collections;
+import java.util.Set;
 
 /**
- * The actual implementation of INodeAddress. Should not be used directly by the application.
+ * A <tt>ClusterNodeView</tt> represents the view of some Orbit cluster node (A) as perceived by the local node.
  */
-public class NodeAddressImpl implements NodeAddress, Serializable
+public class ClusterNodeView
 {
-	private static final long serialVersionUID = 1L;
+    private final NodeAddress nodeAddress;
+    private final String nodeName;
 
-	private java.util.UUID address;
+    private final NodeType nodeType;
+    private final NodeState nodeState;
 
-    // no-arg constructor provided for automated serialization frameworks
-    private NodeAddressImpl(){
+    private final Set<String> hostableActorInterfaces;
+
+    public ClusterNodeView(
+            final NodeAddress nodeAddress,
+            final String nodeName,
+            final NodeType nodeType,
+            final NodeState nodeState,
+            final Set<String> hostableActorInterfaces
+    )
+    {
+        this.nodeAddress = nodeAddress;
+        this.nodeName = nodeName;
+        this.nodeType = nodeType;
+        this.nodeState = nodeState;
+        this.hostableActorInterfaces = Collections.unmodifiableSet(hostableActorInterfaces);
     }
 
-    public NodeAddressImpl(final java.util.UUID address)
+    public NodeAddress getNodeAddress()
     {
-        this.address = address;
+        return nodeAddress;
     }
 
-    @Override
-    public java.util.UUID asUUID()
+    public String getNodeName()
     {
-        return address;
+        return nodeName;
     }
 
-    @Override
-    public boolean equals(final Object o)
+    public NodeType getNodeType()
     {
-        return this == o || ((o instanceof NodeAddressImpl)
-                && address.equals(((NodeAddressImpl) o).address));
+        return nodeType;
     }
 
-    @Override
-    public int hashCode()
+    public NodeState getNodeState()
     {
-        return address.hashCode();
+        return nodeState;
+    }
+
+    public Set<String> getHostableActorInterfaces()
+    {
+        return hostableActorInterfaces;
     }
 
     @Override
     public String toString()
     {
-        return address.toString();
-    }
-
-    @Override
-    public int compareTo(@NotNull final NodeAddress o)
-    {
-        return address.compareTo(o.asUUID());
-    }
-
-    // note: getter/setter provided for automated serialization frameworks
-    public UUID getAddress()
-    {
-        return address;
-    }
-
-    public void setAddress(final UUID address)
-    {
-        this.address = address;
+        return nodeState + " " + nodeType + " @ " + nodeName;
     }
 }

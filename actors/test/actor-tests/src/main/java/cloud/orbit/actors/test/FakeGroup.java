@@ -28,11 +28,15 @@
 
 package cloud.orbit.actors.test;
 
+import cloud.orbit.actors.NodeState;
+import cloud.orbit.actors.NodeType;
+import cloud.orbit.actors.cluster.ClusterNodeView;
 import cloud.orbit.actors.cluster.NodeAddress;
 import cloud.orbit.actors.cluster.NodeAddressImpl;
 import cloud.orbit.concurrent.ExecutorUtils;
 import cloud.orbit.concurrent.Task;
 import cloud.orbit.exception.UncheckedException;
+import cloud.orbit.tuples.Pair;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,9 +47,11 @@ import com.github.benmanes.caffeine.cache.LoadingCache;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -69,6 +75,7 @@ public class FakeGroup
             });
 
     private final Map<NodeAddress, FakeClusterPeer> currentChannels = new HashMap<>();
+    private final Map<NodeAddress, ClusterNodeView> fakeNodeViews = new HashMap<>();
 
     private final Object topologyMutex = new Object();
     @SuppressWarnings("rawtypes")
@@ -90,7 +97,7 @@ public class FakeGroup
         this.clusterName = clusterName;
     }
 
-    protected NodeAddressImpl join(final FakeClusterPeer fakeChannel)
+    protected NodeAddressImpl join(final FakeClusterPeer fakeChannel, final NodeType nodeType, final Set<String> hostableActorInterfaces)
     {
         Collection<CompletableFuture<?>> tasks;
         NodeAddressImpl nodeAddress;
@@ -99,11 +106,10 @@ public class FakeGroup
             final String name = "channel." + (++count) + "." + clusterName;
             nodeAddress = new NodeAddressImpl(new UUID(name.hashCode(), count));
             currentChannels.put(nodeAddress, fakeChannel);
+            fakeNodeViews.put(nodeAddress, new ClusterNodeView(nodeAddress, "fake-node-name", nodeType, NodeState.RUNNING, hostableActorInterfaces));
             fakeChannel.setAddress(nodeAddress);
 
-            final ArrayList<NodeAddress> newView = new ArrayList<>(currentChannels.keySet());
-
-            tasks = currentChannels.values().stream().map(ch -> CompletableFuture.runAsync(() -> ch.onViewChanged(newView), pool)).collect(Collectors.toList());
+            tasks = currentChannels.values().stream().map(ch -> CompletableFuture.runAsync(() -> ch.onViewChanged(fakeNodeViews), pool)).collect(Collectors.toList());
         }
         Task.allOf(tasks).join();
 
@@ -116,8 +122,10 @@ public class FakeGroup
         synchronized (topologyMutex)
         {
             currentChannels.remove(fakeClusterPeer.localAddress());
-            final ArrayList<NodeAddress> newView = new ArrayList<>(currentChannels.keySet());
-            tasks = currentChannels.values().stream().map(ch -> CompletableFuture.runAsync(() -> ch.onViewChanged(newView), pool)).collect(Collectors.toList());
+            final ClusterNodeView view = fakeNodeViews.get(fakeClusterPeer.localAddress());
+            final ClusterNodeView updated = new ClusterNodeView(view.getNodeAddress(), view.getNodeName(), view.getNodeType(), NodeState.STOPPED, Collections.emptySet());
+            fakeNodeViews.put(view.getNodeAddress(), updated);
+            tasks = currentChannels.values().stream().map(ch -> CompletableFuture.runAsync(() -> ch.onViewChanged(fakeNodeViews), pool)).collect(Collectors.toList());
         }
         Task.allOf(tasks).join();
     }

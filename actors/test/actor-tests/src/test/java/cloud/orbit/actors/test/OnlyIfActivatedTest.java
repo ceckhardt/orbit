@@ -44,11 +44,10 @@ import static org.junit.Assert.assertEquals;
 
 public class OnlyIfActivatedTest extends ActorBaseTest
 {
-    private Stage stage;
-
     @Test
     public void onlyIfActivatedTest()
     {
+        final Stage stage = createStage();
         clock.stop();
         OnlyIfActivated only = Actor.getReference(OnlyIfActivated.class, "234");
         only.doSomethingSpecial("A").join();
@@ -74,12 +73,45 @@ public class OnlyIfActivatedTest extends ActorBaseTest
         assertEquals(6, OnlyIfActivatedActor.accessCount);
     }
 
+    @Test
+    public void onlyIfActivatedClusterTest()
+    {
+        // test what happens if an invocation arrives at a node for an @OnlyIfActivated method for an inactive actor
+        clock.stop();
+
+        final Stage stage1 = createStage();
+        stage1.bind();
+
+        final OnlyIfActivated only = Actor.getReference(OnlyIfActivated.class, "345");
+        only.makeActiveNow().join();
+        only.doSomethingSpecial("A").join();
+        assertEquals(1, OnlyIfActivatedActor.accessCount);
+
+        final Stage stage2 = createStage();
+        stage2.bind();
+        only.doSomethingSpecial("B").join();
+        assertEquals(2, OnlyIfActivatedActor.accessCount);
+
+        clock.incrementTime(11, TimeUnit.MINUTES);
+        stage1.cleanup().join();
+        stage1.bind();
+        assertEquals(1, OnlyIfActivatedActor.deactivationCount);
+        assertEquals(null, only.doSomethingSpecial("C").join());
+
+        // OnlyIfActivatedActor:345 should now be deactivated on stage1, but still in ActorDirectory cache on stage2.
+        // So stage2 can still issue Invocations for that actor to stage1. Stage1 should discard them.
+        stage2.bind();
+        assertEquals(null, only.doSomethingSpecial("D").join());
+        assertEquals(2, OnlyIfActivatedActor.accessCount);
+    }
+
     @Before
     public void initializeStage()
     {
         try
         {
-            stage = createStage();
+            OnlyIfActivatedActor.accessCount = 0;
+            OnlyIfActivatedActor.deactivationCount = 0;
         }
         catch (Exception e)
         {

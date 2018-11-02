@@ -110,7 +110,6 @@ public class ClientTest extends ActorBaseTest
     {
         Stage client = createClient();
         SomeActor player = Actor.getReference(SomeActor.class, "232");
-        client.getHosting().setTimeToWaitForServersMillis(100);
         expectException(() -> player.sayHello("meh"));
     }
 

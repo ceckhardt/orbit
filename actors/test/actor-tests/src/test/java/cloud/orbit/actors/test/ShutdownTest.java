@@ -30,6 +30,7 @@ package cloud.orbit.actors.test;
 
 
 import cloud.orbit.actors.Actor;
+import cloud.orbit.actors.NodeState;
 import cloud.orbit.actors.Stage;
 import cloud.orbit.actors.runtime.AbstractActor;
 import cloud.orbit.actors.runtime.ActorRuntime;
@@ -110,7 +111,7 @@ public class ShutdownTest extends ActorBaseTest
         Stage stage2 = createStage();
         assertFalse(methodCall.isDone());
         final Task<?> stopFuture = Task.runAsync(() -> stage1.stop().join());
-        waitFor(() -> stage1.getState() == NodeCapabilities.NodeState.STOPPING);
+        waitFor(() -> stage1.getState() == NodeState.STOPPING);
 
         // release doSomethingTo finish
         logger.info("releasing canFinish");

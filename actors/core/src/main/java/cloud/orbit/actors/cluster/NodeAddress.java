@@ -33,7 +33,7 @@ import java.util.UUID;
 /**
  * Generic representation of a node address.
  */
-public interface NodeAddress
+public interface NodeAddress extends Comparable<NodeAddress>
 {
     UUID asUUID();
 }
