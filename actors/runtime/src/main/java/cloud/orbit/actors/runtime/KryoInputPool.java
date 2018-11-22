@@ -1,5 +1,5 @@
 /*
- Copyright (C) 2016 Electronic Arts Inc.  All rights reserved.
+ Copyright (C) 2018 Electronic Arts Inc.  All rights reserved.
 
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the following conditions
@@ -25,18 +25,29 @@
  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+package cloud.orbit.actors.runtime;
 
-package cloud.orbit.actors.extensions;
+import com.esotericsoftware.kryo.io.Input;
 
-import cloud.orbit.actors.runtime.BasicRuntime;
-import cloud.orbit.actors.runtime.Message;
-
-/**
- * Extension interface to define how actor messages are serialized.
- */
-public interface MessageSerializer extends ActorExtension
+class KryoInputPool extends KryoIOPool<Input>
 {
-    Message deserializeMessage(final BasicRuntime runtime, final byte[] payload) throws Exception;
 
-    byte[] serializeMessage(final BasicRuntime runtime, Message message) throws Exception;
+    static final int MAX_POOLED_BUFFER_SIZE = 512 * 1024;
+
+    @Override
+    protected Input create(int bufferSize)
+    {
+        return new Input(bufferSize);
+    }
+
+    @Override
+    protected boolean recycle(Input input)
+    {
+        if (input.getBuffer().length < MAX_POOLED_BUFFER_SIZE)
+        {
+            input.setInputStream(null);
+            return true;
+        }
+        return false; // discard
+    }
 }

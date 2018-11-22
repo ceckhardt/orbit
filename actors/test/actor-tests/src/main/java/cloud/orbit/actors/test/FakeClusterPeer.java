@@ -70,6 +70,7 @@ public class FakeClusterPeer implements ClusterPeer
     private AtomicLong messagesReceived = new AtomicLong();
     private AtomicLong messagesReceivedOk = new AtomicLong();
     private CompletableFuture<?> startFuture = new CompletableFuture<>();
+    private String placementGroup;
     private Set<String> hostableActorInterfaces;
 
     public FakeClusterPeer()
@@ -88,11 +89,13 @@ public class FakeClusterPeer implements ClusterPeer
         this.hostableActorInterfaces = hostableActorInterfaces;
     }
 
-    public Task<Void> join(final String clusterName, final String nodeName, final NodeType nodeType)
+    public Task<Void> join(final String clusterName, final String nodeName, final NodeType nodeType, final String placementGroup)
     {
+        this.placementGroup = placementGroup;
+
         group = FakeGroup.get(clusterName);
         return Task.runAsync(() -> {
-            address = group.join(this, nodeType, hostableActorInterfaces);
+            address = group.join(this, nodeType, placementGroup, hostableActorInterfaces);
             startFuture.complete(null);
         }, group.pool());
     }

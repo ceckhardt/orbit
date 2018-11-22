@@ -163,6 +163,9 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
     @Config("orbit.actors.clusterName")
     private String clusterName;
 
+    @Config("orbit.actors.placementGroup")
+    private String placementGroup;
+
     @Config("orbit.actors.nodeName")
     private String nodeName;
 
@@ -210,6 +213,7 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
 
     private volatile NodeState state;
 
+    private boolean enableMessageLoopback = true;
     private ClusterPeer clusterPeer;
     private Messaging messaging;
     private InvocationHandler invocationHandler;
@@ -231,6 +235,8 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
     private Pipeline pipeline;
 
     private final Task<Void> startPromise = new Task<>();
+    private Thread shutdownHook = null;
+    private final Object shutdownLock = new Object();
 
     public enum StageMode
     {
@@ -261,6 +267,7 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         private LocalObjectsCleaner localObjectsCleaner;
 
         private String clusterName;
+        private String placementGroup;
         private String nodeName;
         private StageMode mode = StageMode.HOST;
         private int executionPoolSize = DEFAULT_EXECUTION_POOL_SIZE;
@@ -277,12 +284,20 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         private Boolean broadcastActorDeactivations = null;
         private Long deactivationTimeoutMillis;
         private Integer concurrentDeactivations;
+        private Boolean enableShutdownHook = null;
+        private Boolean enableMessageLoopback;
 
         private Timer timer;
 
         public Builder clock(Clock clock)
         {
             this.clock = clock;
+            return this;
+        }
+
+        public Builder enableMessageLoopback(Boolean enableMessageLoopback)
+        {
+            this.enableMessageLoopback = enableMessageLoopback;
             return this;
         }
 
@@ -360,6 +375,12 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         public Builder clusterName(String clusterName)
         {
             this.clusterName = clusterName;
+            return this;
+        }
+
+        public Builder placementGroup(String placementGroup)
+        {
+            this.placementGroup = placementGroup;
             return this;
         }
 
@@ -456,6 +477,11 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
             return this;
         }
 
+        public Builder enableShutdownHook(final boolean enableShutdownHook) {
+            this.enableShutdownHook = enableShutdownHook;
+            return this;
+        }
+
         public Stage build()
         {
             final Stage stage = new Stage();
@@ -467,6 +493,7 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
             stage.setMessageLoopbackObjectCloner(messageLoopbackObjectCloner);
             stage.setMessageSerializer(messageSerializer);
             stage.setClusterName(clusterName);
+            stage.setPlacementGroup(placementGroup);
             stage.setClusterPeer(clusterPeer);
             stage.setNodeName(nodeName);
             stage.setMode(mode);
@@ -487,6 +514,8 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
             if(deactivationTimeoutMillis != null) stage.setDeactivationTimeout(deactivationTimeoutMillis);
             if(concurrentDeactivations != null) stage.setConcurrentDeactivations(concurrentDeactivations);
             if(broadcastActorDeactivations != null) stage.setBroadcastActorDeactivations(broadcastActorDeactivations);
+            if(enableShutdownHook != null) stage.setEnableShutdownHook(enableShutdownHook);
+            if(enableMessageLoopback != null) stage.setEnableMessageLoopback(enableMessageLoopback);
             return stage;
         }
 
@@ -601,6 +630,16 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         this.clusterName = clusterName;
     }
 
+    public String getPlacementGroup()
+    {
+        return placementGroup;
+    }
+
+    public void setPlacementGroup(final String placementGroup)
+    {
+        this.placementGroup = placementGroup;
+    }
+
     public String getNodeName()
     {
         return nodeName;
@@ -678,6 +717,21 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         this.broadcastActorDeactivations = broadcastActorDeactivation;
     }
 
+    public void setEnableShutdownHook(boolean enableShutdownHook)
+    {
+        // TODO: Reenable shutdown hook
+        // This is currently disabled due to https://github.com/orbit/orbit/issues/301
+        if(enableShutdownHook)
+        {
+            logger.warn("Shutdown hook can not currently be enabled. See https://github.com/orbit/orbit/issues/301.");
+        }
+    }
+
+    public void setEnableMessageLoopback(final boolean enableMessageLoopback)
+    {
+        this.enableMessageLoopback = enableMessageLoopback;
+    }
+
     @Override
     public Task<?> start()
     {
@@ -708,6 +762,11 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         if (clusterName == null || clusterName.isEmpty())
         {
             setClusterName("orbit-cluster");
+        }
+
+        if (placementGroup == null || placementGroup.isEmpty())
+        {
+            setPlacementGroup("default");
         }
 
         if (nodeName == null || nodeName.isEmpty())
@@ -817,6 +876,7 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
                 .findFirst()
                 .orElse(new RandomSelectorExtension());
         hosting.setNodeSelector(nodeSelector);
+        hosting.setTargetPlacementGroups(Collections.singleton(placementGroup));
 
         // caches responses
         pipeline.addLast(DefaultHandlers.CACHING, cacheManager);
@@ -829,16 +889,19 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         // handles invocation messages and request-response matching
         pipeline.addLast(DefaultHandlers.MESSAGING, messaging);
 
-        final MessageLoopback messageLoopback = new MessageLoopback();
-        messageLoopback.setCloner(messageLoopbackObjectCloner != null ? messageLoopbackObjectCloner : new KryoSerializer());
-        messageLoopback.setRuntime(this);
-        pipeline.addLast(messageLoopback.getName(), messageLoopback);
+        if (enableMessageLoopback)
+        {
+            final MessageLoopback messageLoopback = new MessageLoopback();
+            messageLoopback.setCloner(messageLoopbackObjectCloner != null ? messageLoopbackObjectCloner : new KryoSerializer());
+            messageLoopback.setRuntime(this);
+            pipeline.addLast(messageLoopback.getName(), messageLoopback);
+        }
 
         // message serializer handler
         pipeline.addLast(DefaultHandlers.SERIALIZATION, new SerializationHandler(this, messageSerializer));
 
         // cluster peer handler
-        pipeline.addLast(DefaultHandlers.NETWORK, new ClusterHandler(clusterPeer, clusterName, nodeName, nodeType));
+        pipeline.addLast(DefaultHandlers.NETWORK, new ClusterHandler(clusterPeer, clusterName, nodeName, nodeType, placementGroup));
 
         extensions.stream().filter(extension -> extension instanceof PipelineExtension)
                 .map(extension -> (PipelineExtension) extension)
@@ -983,8 +1046,14 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         this.extensions.add(extension);
     }
 
+
     @Override
     public Task<?> stop()
+    {
+        return doStop();
+    }
+
+    private Task<?> doStop()
     {
         if (getState() != NodeState.RUNNING)
         {

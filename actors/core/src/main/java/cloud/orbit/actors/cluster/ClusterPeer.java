@@ -83,9 +83,11 @@ public interface ClusterPeer
      *
      * @param clusterName the name/identifier of the cluster
      * @param nodeName the name of this node
+     * @param nodeType the type of this node
+     * @param placementGroup an application-defined key that selects which nodes may activate actors
      * @return future representing the completion of the joining process.
      */
-    Task<?> join(String clusterName, String nodeName, NodeType nodeType);
+    Task<?> join(String clusterName, String nodeName, NodeType nodeType, String placementGroup);
 
     /**
      * Pushes a new NodeState for this node and waits until the cluster agrees on the new NodeState.

@@ -45,6 +45,7 @@ public class ClusterNodeView
     private final NodeType nodeType;
     private final NodeState nodeState;
 
+    private final String placementGroup;
     private final Set<String> hostableActorInterfaces;
 
     public ClusterNodeView(
@@ -52,6 +53,7 @@ public class ClusterNodeView
             final String nodeName,
             final NodeType nodeType,
             final NodeState nodeState,
+            final String placementGroup,
             final Set<String> hostableActorInterfaces
     )
     {
@@ -59,6 +61,7 @@ public class ClusterNodeView
         this.nodeName = nodeName;
         this.nodeType = nodeType;
         this.nodeState = nodeState;
+        this.placementGroup = placementGroup;
         this.hostableActorInterfaces = Collections.unmodifiableSet(hostableActorInterfaces);
     }
 
@@ -80,6 +83,11 @@ public class ClusterNodeView
     public NodeState getNodeState()
     {
         return nodeState;
+    }
+
+    public String getPlacementGroup()
+    {
+        return placementGroup;
     }
 
     public Set<String> getHostableActorInterfaces()

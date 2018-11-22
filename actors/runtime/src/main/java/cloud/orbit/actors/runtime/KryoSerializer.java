@@ -59,8 +59,7 @@ import de.javakaffee.kryoserializers.SynchronizedCollectionsSerializer;
 import de.javakaffee.kryoserializers.UUIDSerializer;
 import de.javakaffee.kryoserializers.UnmodifiableCollectionsSerializer;
 
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.ByteArrayInputStream;
 import java.io.Serializable;
 import java.lang.reflect.InvocationHandler;
 import java.util.Arrays;
@@ -78,7 +77,11 @@ import java.util.function.Consumer;
  */
 public class KryoSerializer implements ExecutionObjectCloner, MessageSerializer
 {
+    private static final int DEFAULT_BUFFER_SIZE = 4096;
+
     private final KryoPool kryoPool;
+    private final KryoOutputPool outputPool = new KryoOutputPool();
+    private final KryoInputPool inputPool = new KryoInputPool();
 
     public KryoSerializer()
     {
@@ -387,13 +390,14 @@ public class KryoSerializer implements ExecutionObjectCloner, MessageSerializer
     }
 
     @Override
-    public Message deserializeMessage(BasicRuntime basicRuntime, InputStream inputStream) throws Exception
+    public Message deserializeMessage(BasicRuntime basicRuntime, final byte[] payload) throws Exception
     {
-        return kryoPool.run(kryo ->
+        return inputPool.run(in ->
         {
-            try (Input in = new Input(inputStream))
+            in.setInputStream(new ByteArrayInputStream(payload));
+            return kryoPool.run(kryo ->
             {
-                Message message = new Message();
+                final Message message = new Message();
                 message.setMessageType(in.readByte());
                 message.setMessageId(in.readInt());
                 message.setReferenceAddress(readNodeAddress(in));
@@ -404,8 +408,8 @@ public class KryoSerializer implements ExecutionObjectCloner, MessageSerializer
                 message.setFromNode(readNodeAddress(in));
                 message.setPayload(readPayload(kryo, in));
                 return message;
-            }
-        });
+            });
+        }, DEFAULT_BUFFER_SIZE);
     }
 
     private static Object readPayload(Kryo kryo, Input in)
@@ -468,11 +472,11 @@ public class KryoSerializer implements ExecutionObjectCloner, MessageSerializer
     }
 
     @Override
-    public void serializeMessage(BasicRuntime basicRuntime, OutputStream outputStream, Message message) throws Exception
+    public byte[] serializeMessage(BasicRuntime basicRuntime, Message message) throws Exception
     {
-        kryoPool.run(kryo ->
+        return outputPool.run(out ->
         {
-            try (Output out = new Output(outputStream))
+            return kryoPool.run(kryo ->
             {
                 out.writeByte(message.getMessageType());
                 out.writeInt(message.getMessageId());
@@ -483,9 +487,10 @@ public class KryoSerializer implements ExecutionObjectCloner, MessageSerializer
                 writeHeaders(kryo, out, message.getHeaders());
                 writeNodeAddress(out, message.getFromNode());
                 writePayload(kryo, out, message);
-                return null;
-            }
-        });
+                out.flush();
+                return out.getByteArrayOutputStream().toByteArray();
+            });
+        }, DEFAULT_BUFFER_SIZE);
     }
 
     private static void writePayload(Kryo kryo, Output out, Message message)
