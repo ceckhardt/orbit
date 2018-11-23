@@ -30,7 +30,6 @@ package cloud.orbit.concurrent;
 
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -48,7 +47,6 @@ import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -67,7 +65,6 @@ import java.util.stream.Stream;
 public class Task<T> extends CompletableFuture<T>
 {
     private Map<String,String> metaData;
-    private static final Void NIL = null;
 
     private static Executor commonPool = ExecutorUtils.newScalingThreadPool(100);
     private static ScheduledExecutorService schedulerExecutor = new ScheduledThreadPoolExecutor(10, runnable -> {
@@ -76,6 +73,23 @@ public class Task<T> extends CompletableFuture<T>
         thread.setDaemon(true);
         return thread;
     });
+
+    private final static Task<Void> COMPLETED_TASK = new Task<Void>() {
+        @Override
+        public void obtrudeValue(final Void value)
+        {
+            throw new UnsupportedOperationException("obtrudeValue not supported");
+        }
+
+        @Override
+        public void obtrudeException(final Throwable ex)
+        {
+            throw new UnsupportedOperationException("obtrudeException not supported");
+        }
+    };
+    static {
+        COMPLETED_TASK.internalComplete(null);
+    }
 
     // TODO: make all callbacks async by default and using the current executor
     // what "current executor' means will have to be defined.
@@ -401,9 +415,7 @@ public class Task<T> extends CompletableFuture<T>
 
     public static Task<Void> done()
     {
-        final Task<Void> task = new Task<>();
-        task.internalComplete(NIL);
-        return task;
+        return COMPLETED_TASK;
     }
 
     @Override
@@ -776,7 +788,7 @@ public class Task<T> extends CompletableFuture<T>
      */
     public static <F extends CompletableFuture<?>, C extends Collection<F>> Task<Void> allOf(C cfs)
     {
-        return from(CompletableFuture.allOf(cfs.toArray(new CompletableFuture[cfs.size()])));
+        return from(CompletableFuture.allOf(cfs.toArray(new CompletableFuture[0])));
     }
 
     /**
@@ -785,10 +797,7 @@ public class Task<T> extends CompletableFuture<T>
      */
     public static <F extends CompletableFuture<?>> Task<Void> allOf(Stream<F> cfs)
     {
-        final List<F> futureList = cfs.collect(Collectors.toList());
-        @SuppressWarnings("rawtypes")
-        final CompletableFuture[] futureArray = futureList.toArray(new CompletableFuture[futureList.size()]);
-        return from(CompletableFuture.allOf(futureArray));
+        return from(CompletableFuture.allOf(cfs.toArray(CompletableFuture[]::new)));
     }
 
     /**
@@ -806,7 +815,7 @@ public class Task<T> extends CompletableFuture<T>
      */
     public static <F extends CompletableFuture<?>> Task<Object> anyOf(Collection<F> cfs)
     {
-        return from(CompletableFuture.anyOf(cfs.toArray(new CompletableFuture[cfs.size()])));
+        return from(CompletableFuture.anyOf(cfs.toArray(new CompletableFuture[0])));
     }
 
     /**
@@ -815,7 +824,7 @@ public class Task<T> extends CompletableFuture<T>
      */
     public static <F extends CompletableFuture<?>> Task<Object> anyOf(Stream<F> cfs)
     {
-        return from(CompletableFuture.anyOf((CompletableFuture[]) cfs.toArray(size -> new CompletableFuture[size])));
+        return from(CompletableFuture.anyOf((CompletableFuture[]) cfs.toArray(CompletableFuture[]::new)));
     }
 
 }

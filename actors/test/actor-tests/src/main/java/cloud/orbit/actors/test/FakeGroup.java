@@ -28,6 +28,13 @@
 
 package cloud.orbit.actors.test;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.github.benmanes.caffeine.cache.CacheLoader;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.LoadingCache;
+
 import cloud.orbit.actors.NodeState;
 import cloud.orbit.actors.NodeType;
 import cloud.orbit.actors.cluster.ClusterNodeView;
@@ -36,16 +43,7 @@ import cloud.orbit.actors.cluster.NodeAddressImpl;
 import cloud.orbit.concurrent.ExecutorUtils;
 import cloud.orbit.concurrent.Task;
 import cloud.orbit.exception.UncheckedException;
-import cloud.orbit.tuples.Pair;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.github.benmanes.caffeine.cache.CacheLoader;
-import com.github.benmanes.caffeine.cache.Caffeine;
-import com.github.benmanes.caffeine.cache.LoadingCache;
-
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -97,7 +95,7 @@ public class FakeGroup
         this.clusterName = clusterName;
     }
 
-    protected NodeAddressImpl join(final FakeClusterPeer fakeChannel, final NodeType nodeType, final Set<String> hostableActorInterfaces)
+    protected NodeAddressImpl join(final FakeClusterPeer fakeChannel, final NodeType nodeType, final String placementGroup, final Set<String> hostableActorInterfaces)
     {
         Collection<CompletableFuture<?>> tasks;
         NodeAddressImpl nodeAddress;
@@ -106,7 +104,7 @@ public class FakeGroup
             final String name = "channel." + (++count) + "." + clusterName;
             nodeAddress = new NodeAddressImpl(new UUID(name.hashCode(), count));
             currentChannels.put(nodeAddress, fakeChannel);
-            fakeNodeViews.put(nodeAddress, new ClusterNodeView(nodeAddress, "fake-node-name", nodeType, NodeState.RUNNING, hostableActorInterfaces));
+            fakeNodeViews.put(nodeAddress, new ClusterNodeView(nodeAddress, "fake-node-name", nodeType, NodeState.RUNNING, placementGroup, hostableActorInterfaces));
             fakeChannel.setAddress(nodeAddress);
 
             tasks = currentChannels.values().stream().map(ch -> CompletableFuture.runAsync(() -> ch.onViewChanged(fakeNodeViews), pool)).collect(Collectors.toList());
@@ -123,7 +121,7 @@ public class FakeGroup
         {
             currentChannels.remove(fakeClusterPeer.localAddress());
             final ClusterNodeView view = fakeNodeViews.get(fakeClusterPeer.localAddress());
-            final ClusterNodeView updated = new ClusterNodeView(view.getNodeAddress(), view.getNodeName(), view.getNodeType(), NodeState.STOPPED, Collections.emptySet());
+            final ClusterNodeView updated = new ClusterNodeView(view.getNodeAddress(), view.getNodeName(), view.getNodeType(), NodeState.STOPPED, view.getPlacementGroup(), Collections.emptySet());
             fakeNodeViews.put(view.getNodeAddress(), updated);
             tasks = currentChannels.values().stream().map(ch -> CompletableFuture.runAsync(() -> ch.onViewChanged(fakeNodeViews), pool)).collect(Collectors.toList());
         }

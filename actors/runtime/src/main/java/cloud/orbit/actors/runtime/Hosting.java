@@ -31,7 +31,6 @@ package cloud.orbit.actors.runtime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import cloud.orbit.actors.NodeState;
 import cloud.orbit.actors.NodeType;
 import cloud.orbit.actors.Stage;
 import cloud.orbit.actors.annotation.OnlyIfActivated;
@@ -51,8 +50,10 @@ import cloud.orbit.lifecycle.Startable;
 import cloud.orbit.util.AnnotationCache;
 
 import java.lang.reflect.Method;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ThreadLocalRandom;
@@ -83,6 +84,8 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
 
     private volatile ClusterView clusterView;
 
+    private volatile Set<String> targetPlacementGroups;
+
     public Hosting(final int localAddressCacheMaximumSize, final long localAddressCacheTTL)
     {
         this.actorDirectory = new ActorDirectory(localAddressCacheMaximumSize, localAddressCacheTTL, this::fetchDistributedDirectory);
@@ -97,6 +100,16 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
     public void setNodeSelector(NodeSelectorExtension nodeSelector)
     {
         this.nodeSelector = nodeSelector;
+    }
+
+    public Set<String> getTargetPlacementGroups()
+    {
+        return targetPlacementGroups;
+    }
+
+    public void setTargetPlacementGroups(Set<String> targetPlacementGroups)
+    {
+        this.targetPlacementGroups = Collections.unmodifiableSet(targetPlacementGroups);
     }
 
     public void setNodeType(final NodeType nodeType)
@@ -143,16 +156,6 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
     public NodeAddress getNodeAddress()
     {
         return clusterPeer.localAddress();
-    }
-
-    public Task<Integer> canActivate(String interfaceName)
-    {
-        if (nodeType == NodeType.CLIENT || stage.getState() != NodeState.RUNNING)
-        {
-            return Task.fromValue(actorSupported_noneSupported);
-        }
-        return Task.fromValue(stage.canActivateActor(interfaceName) ? actorSupported_yes
-                : actorSupported_no);
     }
 
     @Override
@@ -300,11 +303,13 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
 
     private Task<NodeAddress> selectNode(final String interfaceClassName)
     {
-        // Extract volatile field into local field to avoid it changing out from under us mid-method.
+        // Extract volatile fields into local fields to avoid it changing out from under us mid-method.
         final ClusterView localClusterView = this.clusterView;
+        final Set<String> targetPlacementGroups = this.targetPlacementGroups;
 
         // Note: this list can contain the local server as an option.
         final List<ClusterNodeView> eligibleServers = localClusterView.listAllRunningServers().stream()
+                .filter(view -> targetPlacementGroups.contains(view.getPlacementGroup()))
                 .filter(view -> view.getHostableActorInterfaces().contains(interfaceClassName))
                 .collect(toList());
 
@@ -322,6 +327,7 @@ public class Hosting implements NodeCapabilities, Startable, PipelineExtension
         final String interfaceClassName = interfaceClass.getName();
 
         if (interfaceClass.isAnnotationPresent(PreferLocalPlacement.class) &&
+                targetPlacementGroups.contains(stage.getPlacementGroup()) &&
                 nodeType == NodeType.SERVER && stage.canActivateActor(interfaceClassName))
         {
             final int percentile = interfaceClass.getAnnotation(PreferLocalPlacement.class).percentile();

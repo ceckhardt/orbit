@@ -342,7 +342,6 @@ public class ActorBaseTest
                     if (Actor.class.isAssignableFrom(c) && c.isInterface())
                     {
                         afg.getFactoryFor(c);
-                        stage.getHosting().canActivate(c.getName()).join();
                     }
                     if (AbstractActor.class.isAssignableFrom(c) && !Modifier.isAbstract(c.getModifiers()))
                     {

@@ -1,5 +1,5 @@
 /*
- Copyright (C) 2016 Electronic Arts Inc.  All rights reserved.
+ Copyright (C) 2018 Electronic Arts Inc.  All rights reserved.
 
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the following conditions
@@ -26,17 +26,14 @@
  THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package cloud.orbit.actors.extensions;
+package cloud.orbit.actors.test.actors;
 
-import cloud.orbit.actors.runtime.BasicRuntime;
-import cloud.orbit.actors.runtime.Message;
+import cloud.orbit.actors.Actor;
+import cloud.orbit.actors.annotation.PreferLocalPlacement;
+import cloud.orbit.concurrent.Task;
 
-/**
- * Extension interface to define how actor messages are serialized.
- */
-public interface MessageSerializer extends ActorExtension
+@PreferLocalPlacement
+public interface PreferLocalActor extends Actor
 {
-    Message deserializeMessage(final BasicRuntime runtime, final byte[] payload) throws Exception;
-
-    byte[] serializeMessage(final BasicRuntime runtime, Message message) throws Exception;
+    Task<String> getNodeId();
 }

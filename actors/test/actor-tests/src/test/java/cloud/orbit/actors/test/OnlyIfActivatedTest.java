@@ -28,15 +28,15 @@
 
 package cloud.orbit.actors.test;
 
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
+
 import cloud.orbit.actors.Actor;
 import cloud.orbit.actors.Stage;
 import cloud.orbit.actors.test.actors.OnlyIfActivated;
 import cloud.orbit.actors.test.actors.OnlyIfActivatedActor;
 import cloud.orbit.exception.UncheckedException;
-
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
 
 import java.util.concurrent.TimeUnit;
 

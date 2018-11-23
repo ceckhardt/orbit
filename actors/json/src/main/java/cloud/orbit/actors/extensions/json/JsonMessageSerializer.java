@@ -45,12 +45,14 @@ import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.core.util.JsonParserSequence;
 import com.fasterxml.jackson.databind.BeanProperty;
+import com.fasterxml.jackson.databind.DatabindContext;
 import com.fasterxml.jackson.databind.DeserializationConfig;
 import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.JsonDeserializer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationConfig;
+import com.fasterxml.jackson.databind.annotation.NoClass;
 import com.fasterxml.jackson.databind.cfg.MapperConfig;
 import com.fasterxml.jackson.databind.jsontype.NamedType;
 import com.fasterxml.jackson.databind.jsontype.TypeDeserializer;
@@ -101,12 +103,12 @@ public class JsonMessageSerializer implements MessageSerializer
 
 
     @Override
-    public Message deserializeMessage(final BasicRuntime runtime, final InputStream inputStream) throws Exception
+    public Message deserializeMessage(final BasicRuntime runtime, final byte[] payload) throws Exception
     {
         ensureInit(runtime);
         try
         {
-            final Message message = mapper.readValue(inputStream, Message.class);
+            final Message message = mapper.readValue(payload, Message.class);
 
             // decode payload parameters according to the interface/method
             if (message.getPayload() != null &&
@@ -144,7 +146,7 @@ public class JsonMessageSerializer implements MessageSerializer
     }
 
     @Override
-    public void serializeMessage(final BasicRuntime runtime, final OutputStream out, final Message message) throws Exception
+    public byte[] serializeMessage(final BasicRuntime runtime, final Message message) throws Exception
     {
         ensureInit(runtime);
         if (message.getPayload() instanceof Throwable && message.getMessageType() == MessageDefinitions.RESPONSE_ERROR)
@@ -161,7 +163,7 @@ public class JsonMessageSerializer implements MessageSerializer
         {
             message.setHeaders(null);
         }
-        mapper.writeValue(out, message);
+        return mapper.writeValueAsBytes(message);
     }
 
     private Object[] castArgs(final Type[] genericParameterTypes, final Object payload)
@@ -254,12 +256,32 @@ class ClassIdTypeResolverBuilder extends ObjectMapper.DefaultTypeResolverBuilder
 
         TypeIdResolver idRes = idResolver(config, baseType, subtypes, false, true);
 
+        JavaType defaultImpl;
+
+        if (_defaultImpl == null) {
+            defaultImpl = null;
+        } else {
+            // 20-Mar-2016, tatu: It is important to do specialization go through
+            //   TypeFactory to ensure proper resolution; with 2.7 and before, direct
+            //   call to JavaType was used, but that can not work reliably with 2.7
+            // 20-Mar-2016, tatu: Can finally add a check for type compatibility BUT
+            //   if so, need to add explicit checks for marker types. Not ideal, but
+            //   seems like a reasonable compromise.
+            if ((_defaultImpl == Void.class)
+                    || (_defaultImpl == NoClass.class)) {
+                defaultImpl = config.getTypeFactory().constructType(_defaultImpl);
+            } else {
+                defaultImpl = config.getTypeFactory()
+                        .constructSpecializedType(baseType, _defaultImpl);
+            }
+        }
+
         // First, method for converting type info to type id:
         switch (_includeAs)
         {
             case PROPERTY:
             case EXISTING_PROPERTY: // as per [#528] same class as PROPERTY
-                return new ClassIdAsPropertyTypeDeserializer(baseType, _typeProperty, _typeIdVisible, _defaultImpl, _includeAs, idRes);
+                return new ClassIdAsPropertyTypeDeserializer(baseType, idRes, _typeProperty, _typeIdVisible, defaultImpl, _includeAs);
         }
         throw new IllegalStateException("Do not know how to construct standard type serializer for inclusion type: " + _includeAs);
 
@@ -328,8 +350,9 @@ class ClassIdResolver extends ClassNameIdResolver
 
 
     @Override
-    protected JavaType _typeFromId(final String id, final TypeFactory typeFactory)
+    protected JavaType _typeFromId(final String id, final DatabindContext ctxt)
     {
+        final TypeFactory typeFactory = ctxt.getTypeFactory();
         Class<?> cls = DefaultClassDictionary.get().getClassById(Integer.parseInt(id), true);
         return typeFactory.constructSpecializedType(_baseType, cls);
     }
@@ -342,9 +365,11 @@ class ClassIdAsPropertyTypeDeserializer extends AsPropertyTypeDeserializer
         super(src, property);
     }
 
-    public ClassIdAsPropertyTypeDeserializer(final JavaType baseType, final String _typeProperty, final boolean _typeIdVisible, final Class<?> _defaultImpl, final JsonTypeInfo.As _includeAs, final TypeIdResolver idRes)
+    public ClassIdAsPropertyTypeDeserializer(JavaType baseType, TypeIdResolver idRes,
+                                      String typePropertyName, boolean typeIdVisible, JavaType defaultImpl,
+                                      JsonTypeInfo.As inclusion)
     {
-        super(baseType, idRes, _typeProperty, _typeIdVisible, _defaultImpl, _includeAs);
+        super(baseType, idRes, typePropertyName, typeIdVisible, defaultImpl, inclusion);
     }
 
     @Override
@@ -385,7 +410,7 @@ class ClassIdAsPropertyTypeDeserializer extends AsPropertyTypeDeserializer
             tb.writeStartObject();
             tb.writeFieldName(_typePropertyName);
             tb.writeString(typeId);
-            jp = JsonParserSequence.createFlattened(tb.asParser(jp), jp);
+            jp = JsonParserSequence.createFlattened(false, tb.asParser(jp), jp);
             jp.nextToken();
         }
         Object value = deser.deserialize(jp, ctxt);

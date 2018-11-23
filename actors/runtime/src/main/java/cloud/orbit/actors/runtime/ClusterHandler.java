@@ -46,13 +46,15 @@ public class ClusterHandler extends HandlerAdapter
     private String clusterName;
     private String nodeName;
     private NodeType nodeType;
+    private String placementGroup;
 
-    public ClusterHandler(final ClusterPeer clusterPeer, final String clusterName, final String nodeName, final NodeType nodeType)
+    public ClusterHandler(final ClusterPeer clusterPeer, final String clusterName, final String nodeName, final NodeType nodeType, final String placementGroup)
     {
         this.clusterPeer = clusterPeer;
         this.clusterName = clusterName;
         this.nodeName = nodeName;
         this.nodeType = nodeType;
+        this.placementGroup = placementGroup;
     }
 
     @Override
@@ -72,7 +74,7 @@ public class ClusterHandler extends HandlerAdapter
     {
         logger.info("Connecting handler ClusterHandler...");
         clusterPeer.registerMessageReceiver((n, m) -> ctx.fireRead(Pair.of(n, m)));
-        return clusterPeer.join(clusterName, nodeName, nodeType).thenRun(() ->
+        return clusterPeer.join(clusterName, nodeName, nodeType, placementGroup).thenRun(() ->
                 {
                     try
                     {

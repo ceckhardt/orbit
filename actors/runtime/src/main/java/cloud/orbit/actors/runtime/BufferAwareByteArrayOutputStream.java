@@ -1,5 +1,5 @@
 /*
- Copyright (C) 2016 Electronic Arts Inc.  All rights reserved.
+ Copyright (C) 2018 Electronic Arts Inc.  All rights reserved.
 
  Redistribution and use in source and binary forms, with or without
  modification, are permitted provided that the following conditions
@@ -26,17 +26,23 @@
  THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-package cloud.orbit.actors.extensions;
+package cloud.orbit.actors.runtime;
 
-import cloud.orbit.actors.runtime.BasicRuntime;
-import cloud.orbit.actors.runtime.Message;
+import java.io.ByteArrayOutputStream;
 
 /**
- * Extension interface to define how actor messages are serialized.
+ * Exposes protected byte array length in {@link ByteArrayOutputStream}.
  */
-public interface MessageSerializer extends ActorExtension
+final class BufferAwareByteArrayOutputStream extends ByteArrayOutputStream
 {
-    Message deserializeMessage(final BasicRuntime runtime, final byte[] payload) throws Exception;
 
-    byte[] serializeMessage(final BasicRuntime runtime, Message message) throws Exception;
+    BufferAwareByteArrayOutputStream(int size)
+    {
+        super(size);
+    }
+
+    int getBufferSize()
+    {
+        return buf.length;
+    }
 }

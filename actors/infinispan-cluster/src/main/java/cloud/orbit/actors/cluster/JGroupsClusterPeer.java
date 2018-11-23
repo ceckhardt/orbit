@@ -95,6 +95,8 @@ public class JGroupsClusterPeer implements ExtendedClusterPeer
     private ViewListener viewListener;
     private MessageListener messageListener;
 
+    private String placementGroup;
+
     private String jgroupsConfig = "classpath:/conf/udp-jgroups.xml";
 
     private boolean nameBasedUpdPort = true;
@@ -159,8 +161,10 @@ public class JGroupsClusterPeer implements ExtendedClusterPeer
     }
 
     @Override
-    public Task<?> join(final String clusterName, final String nodeName, final NodeType nodeType)
+    public Task<?> join(final String clusterName, final String nodeName, final NodeType nodeType, final String placementGroup)
     {
+        this.placementGroup = placementGroup;
+
         final ForkJoinTask<Address> f = ForkJoinTask.adapt(() ->
         {
             try
@@ -336,7 +340,6 @@ public class JGroupsClusterPeer implements ExtendedClusterPeer
 
         master = newMaster;
 
-
         final Set<String> pretenderSet = new HashSet<String>() {
             @Override
             public boolean contains(final Object o)
@@ -347,7 +350,7 @@ public class JGroupsClusterPeer implements ExtendedClusterPeer
 
         final SortedMap<NodeAddress, ClusterNodeView> nodeViews = new TreeMap<>();
         nodeMap2.keySet().stream()
-                .map(addr -> new ClusterNodeView(addr, addr.toString(), NodeType.SERVER, NodeState.RUNNING, pretenderSet))
+                .map(addr -> new ClusterNodeView(addr, addr.toString(), NodeType.SERVER, NodeState.RUNNING, placementGroup, pretenderSet))
                 .forEach(nodeView -> nodeViews.put(nodeView.getNodeAddress(), nodeView));
 
         final ClusterView clusterView = new ClusterView(nodeViews);
