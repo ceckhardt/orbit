@@ -188,7 +188,10 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
     private List<String> basePackages = new ArrayList<>();
 
     @Config("orbit.actors.pulseInterval")
-    private long pulseIntervalMillis = TimeUnit.SECONDS.toMillis(1);
+    private long pulseIntervalMillis = TimeUnit.SECONDS.toMillis(10);
+
+    @Config("orbit.actors.clusterPeerPulseIntervalMillis")
+    private long clusterPeerPulseIntervalMillis = TimeUnit.SECONDS.toMillis(1);
 
     @Config("orbit.actors.concurrentDeactivations")
     private int concurrentDeactivations = 16;
@@ -972,6 +975,18 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
                 }
             }, pulseIntervalMillis, pulseIntervalMillis);
 
+            timer.schedule(new TimerTask()
+            {
+                @Override
+                public void run()
+                {
+                    if (state == NodeState.RUNNING)
+                    {
+                        ForkJoinTask.adapt(() -> clusterPeerPulse().join()).fork();
+                    }
+                }
+            }, clusterPeerPulseIntervalMillis, clusterPeerPulseIntervalMillis);
+
             if (mode == StageMode.HOST)
             {
                 startReminderController();
@@ -1144,7 +1159,6 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
 
     public ClusterPeer getClusterPeer()
     {
-
         return clusterPeer != null ? clusterPeer : (clusterPeer = constructDefaultClusterPeer());
     }
 
@@ -1154,7 +1168,6 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         {
             startReminderController();
         }
-        await(clusterPeer.pulse());
         return cleanup();
     }
 
@@ -1166,6 +1179,10 @@ public class Stage implements Startable, ActorRuntime, RuntimeActions
         await(messaging.cleanup());
 
         return Task.done();
+    }
+
+    protected Task clusterPeerPulse() {
+        return clusterPeer.pulse();
     }
 
     /**
